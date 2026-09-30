@@ -1,51 +1,105 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma, inMemoryStore, isDbConnected } from "@/lib/db";
 import { getAuthenticatedAdmin } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const admin = await getAuthenticatedAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(req.url);
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
+  const skip = (page - 1) * limit;
+
   const dbConnected = await isDbConnected();
 
   if (dbConnected) {
     try {
-      const failedDeliveries = await prisma.notificationDelivery.findMany({
-        where: { status: "FAILED" },
-        orderBy: { createdAt: "desc" },
-        include: { commandExecution: true },
-      });
+      const [totalDeliveries, failedDeliveries, failedActions] = await Promise.all([
+        prisma.notificationDelivery.count({ where: { status: "FAILED" } }),
+        prisma.notificationDelivery.findMany({
+          where: { status: "FAILED" },
+          orderBy: { createdAt: "desc" },
+          skip,
+          take: limit,
+          include: {
+            commandExecution: {
+              include: { server: true },
+            },
+          },
+        }),
+        prisma.commandAction.findMany({
+          where: { status: "FAILED" },
+          orderBy: { createdAt: "desc" },
+          skip,
+          take: limit,
+          include: {
+            commandExecution: {
+              include: { server: true },
+            },
+          },
+        }),
+      ]);
 
-      const failedActions = await prisma.commandAction.findMany({
-        where: { status: "FAILED" },
-        orderBy: { createdAt: "desc" },
-        include: { commandExecution: true },
-      });
+      const formattedDeliveries = failedDeliveries.map((d: any) => ({
+        id: d.id,
+        commandExecutionId: d.commandExecutionId,
+        channelType: d.channelType,
+        destination: d.destination,
+        status: d.status,
+        attempts: d.attempts,
+        maxAttempts: d.maxAttempts,
+        lastError: d.lastError || "Unknown delivery failure",
+        createdAt: d.createdAt.toISOString(),
+        updatedAt: d.updatedAt.toISOString(),
+        command: d.commandExecution?.commandName || "—",
+        server: d.commandExecution?.server?.name || "Unknown server",
+        channel: d.commandExecution?.channelId ? `#${d.commandExecution.channelId}` : "Unknown channel",
+        user: d.commandExecution?.username ? `@${d.commandExecution.username}` : "—",
+        commandExecution: d.commandExecution,
+      }));
 
-      return NextResponse.json({ failedDeliveries, failedActions });
+      const totalPages = Math.ceil(totalDeliveries / limit);
+
+      return NextResponse.json({
+        items: formattedDeliveries,
+        failedDeliveries: formattedDeliveries,
+        failedActions,
+        pagination: {
+          page,
+          limit,
+          total: totalDeliveries,
+          totalPages,
+        },
+      });
     } catch (err) {
-      // Fall through to memory store
+      if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true") {
+        return NextResponse.json({ error: "Service Unavailable" }, { status: 503 });
+      }
     }
   }
 
-  const failedExecutions = inMemoryStore.commandExecutions.filter(
-    (e) => e.mirrorStatus === "FAILED" || e.status === "FAILED"
-  );
+  if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true") {
+    return NextResponse.json({ error: "Service Unavailable" }, { status: 503 });
+  }
+
+  // Memory store fallback for DEMO_MODE only
+  const items = inMemoryStore.notificationDeliveries.filter((d) => d.status === "FAILED");
+  const total = items.length;
+  const paginated = items.slice(skip, skip + limit);
+  const totalPages = Math.ceil(total / limit);
 
   return NextResponse.json({
-    failedDeliveries: failedExecutions.map((e) => ({
-      id: `delivery-${e.id}`,
-      commandExecutionId: e.id,
-      channelType: "DISCORD_MIRROR",
-      destination: "Webhook Mirror",
-      status: "FAILED",
-      attempts: 3,
-      lastError: "Connection timeout after 3 attempts (HTTP 504)",
-      createdAt: e.createdAt,
-      commandExecution: e,
-    })),
+    items: paginated,
+    failedDeliveries: paginated,
     failedActions: [],
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+    },
   });
 }

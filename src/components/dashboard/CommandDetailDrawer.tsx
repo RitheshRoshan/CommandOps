@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Terminal, Check, Copy } from "lucide-react";
+import { X, Copy } from "lucide-react";
 import ExecutionTimeline from "./ExecutionTimeline";
 
 interface CommandDetailDrawerProps {
@@ -15,17 +15,23 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
     navigator.clipboard.writeText(text);
   };
 
+  const serverName = execution.server?.name || execution.server || "Unknown server";
+  const channelName = execution.channelId ? `#${execution.channelId}` : execution.channel || "Unknown channel";
+  const durationText = execution.executionTimeMs !== undefined && execution.executionTimeMs !== null ? `${execution.executionTimeMs}ms` : (execution.durationMs !== undefined ? `${execution.durationMs}ms` : "—");
+
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0d1117] border-l border-[#30363d] shadow-2xl flex flex-col justify-between font-mono text-xs text-[#c9d1d9] animate-in slide-in-from-right duration-150">
       {/* Drawer Header */}
       <div className="p-4 border-b border-[#30363d] bg-[#161b22] flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-base font-bold text-[#f0f6fc]">/{execution.commandName}</span>
-            <span className="text-[10px] text-[#238636] font-bold">● {execution.status || "Success"}</span>
+            <span className="text-base font-bold text-[#f0f6fc]">
+              {execution.commandName ? (execution.commandName.startsWith("/") ? execution.commandName : `/${execution.commandName}`) : (execution.command || "—")}
+            </span>
+            <span className="text-[10px] text-[#238636] font-bold">● {execution.status || "COMPLETED"}</span>
           </div>
           <div className="text-[11px] text-[#8b949e] mt-0.5">
-            {execution.server?.name || "Acme Developers"} • #{execution.commandName === "report" ? "operations" : "general"}
+            {serverName} • {channelName}
           </div>
         </div>
 
@@ -39,7 +45,9 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
         {/* Executed By */}
         <div className="bg-[#161b22] border border-[#30363d] p-3 rounded-md space-y-1">
           <div className="text-[10px] text-[#8b949e] uppercase">Executed by</div>
-          <div className="text-[#f0f6fc] font-bold text-xs">@{execution.username}</div>
+          <div className="text-[#f0f6fc] font-bold text-xs">
+            {execution.username ? `@${execution.username}` : (execution.user || "—")}
+          </div>
         </div>
 
         {/* Report Content if /report */}
@@ -75,15 +83,15 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
         <div className="bg-[#161b22] border border-[#30363d] p-3 rounded-md space-y-2 text-[11px]">
           <div className="flex justify-between">
             <span className="text-[#8b949e]">Execution ID</span>
-            <span className="text-[#f0f6fc] select-all truncate ml-2 font-bold">{execution.correlationId}</span>
+            <span className="text-[#f0f6fc] select-all truncate ml-2 font-bold">{execution.correlationId || execution.id || "—"}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
             <span className="text-[#8b949e]">Interaction ID</span>
-            <span className="text-[#f0f6fc] select-all truncate ml-2">{execution.interactionId}</span>
+            <span className="text-[#f0f6fc] select-all truncate ml-2">{execution.interactionId || "—"}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
-            <span className="text-[#8b949e]">Response</span>
-            <span className="text-[#238636] font-bold">200 OK ({execution.executionTimeMs || 182}ms)</span>
+            <span className="text-[#8b949e]">Response Latency</span>
+            <span className="text-[#238636] font-bold">{durationText}</span>
           </div>
         </div>
 
@@ -93,7 +101,7 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
             <span className="text-[10px] text-[#8b949e] uppercase font-bold">Raw Interaction Payload</span>
             <button
               onClick={() => copyToClipboard(JSON.stringify(execution, null, 2))}
-              className="text-[10px] text-[#5865f2] hover:underline flex items-center gap-1"
+              className="text-[10px] text-[#5865f2] hover:underline flex items-center gap-1 cursor-pointer"
             >
               <Copy className="w-3 h-3" /> Copy JSON
             </button>
@@ -101,12 +109,12 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
           <pre className="bg-[#0d1117] p-2.5 rounded border border-[#30363d] text-[10px] text-[#c9d1d9] max-h-36 overflow-y-auto">
             {JSON.stringify(
               {
-                correlationId: execution.correlationId,
+                correlationId: execution.correlationId || execution.id,
                 interactionId: execution.interactionId,
-                command: execution.commandName,
-                user: execution.username,
-                severity: execution.severity,
-                category: execution.category,
+                command: execution.commandName || execution.command,
+                user: execution.username || execution.user,
+                severity: execution.severity || "LOW",
+                category: execution.category || "OTHER",
                 ed25519Signature: "VERIFIED_OK",
               },
               null,
@@ -120,7 +128,7 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
       <div className="p-3 border-t border-[#30363d] bg-[#161b22] text-right">
         <button
           onClick={onClose}
-          className="bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] px-3 py-1 rounded text-xs transition"
+          className="bg-[#21262d] hover:bg-[#30363d] text-[#c9d1d9] px-3 py-1 rounded text-xs transition cursor-pointer"
         >
           Close Drawer
         </button>

@@ -15,18 +15,74 @@ export async function GET() {
       const servers = await prisma.discordServer.findMany({
         orderBy: { createdAt: "desc" },
         include: {
+          channels: true,
           _count: {
-            select: { commandExecutions: true, commandRules: true },
+            select: {
+              commandExecutions: true,
+              commandRules: true,
+              memberships: true,
+              channels: true,
+            },
+          },
+          commandExecutions: {
+            take: 1,
+            orderBy: { createdAt: "desc" },
+            select: { createdAt: true },
           },
         },
       });
-      return NextResponse.json({ servers });
+
+      const formatted = servers.map((s: any) => ({
+        id: s.id,
+        discordGuildId: s.discordGuildId,
+        name: s.name,
+        iconUrl: s.iconUrl,
+        mirrorWebhookUrl: s.mirrorWebhookUrl,
+        isActive: s.isActive,
+        status: s.isActive ? "ONLINE" : "OFFLINE",
+        memberCount: s._count.memberships || 0,
+        channelCount: s._count.channels || s.channels.length || 0,
+        commandCount: s._count.commandRules || 0,
+        executionCount: s._count.commandExecutions || 0,
+        lastActivity: s.commandExecutions[0] ? s.commandExecutions[0].createdAt.toISOString() : s.createdAt.toISOString(),
+        channels: s.channels.map((c: any) => ({
+          id: c.id,
+          discordChannelId: c.discordChannelId,
+          name: c.name,
+          type: c.type || "GUILD_TEXT",
+        })),
+      }));
+
+      return NextResponse.json({ servers: formatted });
     } catch (err) {
-      // Fall through to memory store
+      if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true") {
+        return NextResponse.json({ error: "Service Unavailable" }, { status: 503 });
+      }
     }
   }
 
-  return NextResponse.json({ servers: inMemoryStore.discordServers });
+  if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true") {
+    return NextResponse.json({ error: "Service Unavailable" }, { status: 503 });
+  }
+
+  // Memory fallback for DEMO_MODE only
+  const formatted = inMemoryStore.discordServers.map((s) => ({
+    id: s.id,
+    discordGuildId: s.discordGuildId,
+    name: s.name,
+    iconUrl: s.iconUrl,
+    mirrorWebhookUrl: s.mirrorWebhookUrl,
+    isActive: s.isActive !== false,
+    status: s.isActive !== false ? "ONLINE" : "OFFLINE",
+    memberCount: 0,
+    channelCount: 0,
+    commandCount: 0,
+    executionCount: inMemoryStore.commandExecutions.filter((e) => e.serverId === s.id).length,
+    lastActivity: s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString(),
+    channels: [],
+  }));
+
+  return NextResponse.json({ servers: formatted });
 }
 
 export async function POST(req: NextRequest) {
@@ -57,6 +113,7 @@ export async function POST(req: NextRequest) {
       await prisma.auditLog.create({
         data: {
           adminId: admin.sub,
+          serverId: server.id,
           action: "SERVER_CONNECTED",
           resource: "DiscordServer",
           resourceId: server.id,
@@ -66,8 +123,14 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({ server }, { status: 201 });
     } catch (err) {
-      // Fall through to memory fallback
+      if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true") {
+        return NextResponse.json({ error: "Service Unavailable" }, { status: 503 });
+      }
     }
+  }
+
+  if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true") {
+    return NextResponse.json({ error: "Service Unavailable" }, { status: 503 });
   }
 
   const server = {

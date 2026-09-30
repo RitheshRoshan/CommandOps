@@ -11,34 +11,49 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
-    const defaultAdminEmail = process.env.ADMIN_EMAIL || "admin@commandops.io";
-    const defaultAdminPass = process.env.ADMIN_PASSWORD || "admin_password_123!";
+    const isDemoMode = process.env.DEMO_MODE === "true";
+    const isProd = process.env.NODE_ENV === "production";
+    const dbConnected = await isDbConnected();
+
+    if (!dbConnected && isProd && !isDemoMode) {
+      return NextResponse.json({ error: "Database Unavailable" }, { status: 503 });
+    }
 
     let adminUser = null;
-    const dbConnected = await isDbConnected();
 
     if (dbConnected) {
       adminUser = await prisma.adminUser.findUnique({ where: { email } });
-    } else {
+    } else if (isDemoMode) {
       adminUser = inMemoryStore.adminUsers.find((u) => u.email === email);
     }
 
-    // Default Fallback Admin Check for Demo Setup
-    if (!adminUser && email === defaultAdminEmail && password === defaultAdminPass) {
-      adminUser = {
-        id: "admin-demo-id",
-        email: defaultAdminEmail,
-        name: "CommandOps Principal Admin",
-        role: "ADMIN",
-      };
-    } else if (adminUser) {
-      const isValid = await verifyPassword(password, adminUser.passwordHash || "");
-      if (!isValid && !(email === defaultAdminEmail && password === defaultAdminPass)) {
+    // Demo Mode Fallback Credentials Guard
+    if (!adminUser && isDemoMode) {
+      const defaultAdminEmail = process.env.ADMIN_EMAIL || "admin@commandops.io";
+      const defaultAdminPass = process.env.ADMIN_PASSWORD;
+
+      if (defaultAdminPass && email === defaultAdminEmail && password === defaultAdminPass) {
+        adminUser = {
+          id: "admin-demo-id",
+          email: defaultAdminEmail,
+          name: "CommandOps Admin",
+          role: "ADMIN",
+        };
+      }
+    }
+
+    if (!adminUser) {
+      logger.warn({ event: "admin.login_failed", email });
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
+
+    // Verify Password against hash if passwordHash exists
+    if (adminUser.passwordHash) {
+      const isValid = await verifyPassword(password, adminUser.passwordHash);
+      if (!isValid) {
         logger.warn({ event: "admin.login_failed", email });
         return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
       }
-    } else {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
     const token = await signToken({
@@ -62,7 +77,7 @@ export async function POST(req: NextRequest) {
 
     res.cookies.set("commandops_session", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProd,
       sameSite: "lax",
       maxAge: 86400, // 24 hours
       path: "/",

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, Settings } from "lucide-react";
@@ -19,6 +20,14 @@ interface NavSection {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [servers, setServers] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch("/api/servers")
+      .then((res) => res.json())
+      .then((data) => setServers(data.servers || []))
+      .catch(() => {});
+  }, []);
 
   const sections: NavSection[] = [
     {
@@ -49,13 +58,6 @@ export default function Sidebar() {
       category: "INTELLIGENCE",
       items: [{ href: "/dashboard/ai-insights", label: "Command Intelligence", hash: true }],
     },
-  ];
-
-  const discordServers = [
-    { name: "Acme Developers", active: true, color: "bg-[#5865f2]" },
-    { name: "Production", active: false, color: "bg-[#10b981]" },
-    { name: "Community", active: false, color: "bg-[#3b82f6]" },
-    { name: "Testing", active: false, color: "bg-[#f59e0b]" },
   ];
 
   return (
@@ -113,21 +115,23 @@ export default function Sidebar() {
         {/* Discord Servers Section */}
         <div className="pt-2 border-t border-[#1e293b] space-y-1.5">
           <div className="text-[10px] font-mono uppercase tracking-wider text-[#64748b] px-2 font-semibold">
-            DISCORD SERVERS
+            DISCORD SERVERS ({servers.length})
           </div>
           <div className="space-y-1">
-            {discordServers.map((srv, idx) => (
-              <div
-                key={idx}
-                className={`flex items-center gap-2 px-2 py-1 rounded text-xs font-mono transition cursor-pointer ${
-                  srv.active ? "bg-[#0f172a] text-[#f8fafc] font-medium" : "text-[#94a3b8] hover:text-[#f8fafc]"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${srv.color}`} />
-                <span className="truncate">{srv.name}</span>
-                {srv.active && <span className="ml-auto text-[9px] text-[#10b981]">●</span>}
-              </div>
-            ))}
+            {servers.length === 0 ? (
+              <div className="px-2 text-[11px] text-[#64748b] font-mono">No servers connected</div>
+            ) : (
+              servers.map((srv, idx) => (
+                <div
+                  key={srv.id || idx}
+                  className="flex items-center gap-2 px-2 py-1 rounded text-xs font-mono text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#0f172a] transition cursor-pointer"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#5865f2]" />
+                  <span className="truncate">{srv.name}</span>
+                  {srv.status === "ONLINE" && <span className="ml-auto text-[9px] text-[#10b981]">●</span>}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

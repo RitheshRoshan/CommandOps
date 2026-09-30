@@ -1,21 +1,30 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ShieldCheck, Search, Filter } from "lucide-react";
+import { ShieldCheck, Search, RefreshCw } from "lucide-react";
 
 export default function AuditTrailPage() {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const fetchAuditLogs = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/audit-logs");
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.items || data.auditLogs || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetch("/api/audit-logs")
-      .then((res) => res.json())
-      .then((data) => {
-        setLogs(data.auditLogs || []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    fetchAuditLogs();
   }, []);
 
   const filtered = logs.filter((log) => {
@@ -24,7 +33,8 @@ export default function AuditTrailPage() {
       const match =
         log.action?.toLowerCase().includes(q) ||
         log.resource?.toLowerCase().includes(q) ||
-        log.admin?.name?.toLowerCase().includes(q);
+        log.actor?.toLowerCase().includes(q) ||
+        log.server?.toLowerCase().includes(q);
       if (!match) return false;
     }
     return true;
@@ -32,14 +42,24 @@ export default function AuditTrailPage() {
 
   return (
     <div className="space-y-4 font-sans text-xs">
-      <div className="border-b border-[#30363d] pb-3 font-mono">
-        <h1 className="text-base font-bold text-[#f0f6fc] flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-[#238636]" />
-          <span>AUDIT LOG</span>
-        </h1>
-        <p className="text-xs text-[#8b949e] mt-0.5">
-          Dense administrative activity log & governance records
-        </p>
+      <div className="flex items-center justify-between border-b border-[#30363d] pb-3 font-mono">
+        <div>
+          <h1 className="text-base font-bold text-[#f0f6fc] flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-[#238636]" />
+            <span>AUDIT LOG</span>
+          </h1>
+          <p className="text-xs text-[#8b949e] mt-0.5">
+            Administrative activity log & governance records from backend database
+          </p>
+        </div>
+        <button
+          onClick={fetchAuditLogs}
+          disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded text-[#c9d1d9] font-mono transition text-xs"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          <span>Refresh</span>
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -48,7 +68,7 @@ export default function AuditTrailPage() {
           <Search className="w-3.5 h-3.5 text-[#8b949e] shrink-0" />
           <input
             type="text"
-            placeholder="Search by actor, action, resource..."
+            placeholder="Search by actor, action, resource, server..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1 text-xs text-[#c9d1d9] outline-none"
@@ -66,20 +86,20 @@ export default function AuditTrailPage() {
           <table className="w-full text-left">
             <thead className="bg-[#0d1117] text-[#8b949e] border-b border-[#30363d] uppercase text-[10px]">
               <tr>
-                <th className="px-3.5 py-2">TIME</th>
+                <th className="px-3.5 py-2">TIMESTAMP</th>
                 <th className="px-3.5 py-2">ACTOR</th>
                 <th className="px-3.5 py-2">SERVER</th>
                 <th className="px-3.5 py-2">ACTION</th>
                 <th className="px-3.5 py-2">RESOURCE</th>
                 <th className="px-3.5 py-2">RESULT</th>
-                <th className="px-3.5 py-2">IP</th>
+                <th className="px-3.5 py-2">IP ADDRESS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#30363d] text-[#c9d1d9]">
               {loading ? (
                 <tr>
                   <td colSpan={7} className="text-center py-8 text-[#8b949e]">
-                    Loading Audit Records...
+                    Loading Audit Records from Database...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
@@ -92,16 +112,16 @@ export default function AuditTrailPage() {
                 filtered.map((log) => (
                   <tr key={log.id} className="hover:bg-[#21262d] transition">
                     <td className="px-3.5 py-2 text-[#8b949e] whitespace-nowrap">
-                      {new Date(log.createdAt || Date.now()).toLocaleTimeString()}
+                      {log.createdAt ? new Date(log.createdAt).toLocaleString() : "—"}
                     </td>
                     <td className="px-3.5 py-2 text-[#f0f6fc] font-semibold">
-                      @{log.admin?.name || log.admin?.email || "rithesh"}
+                      {log.actor && log.actor !== "—" ? (log.actor.startsWith("@") ? log.actor : `@${log.actor}`) : "—"}
                     </td>
-                    <td className="px-3.5 py-2 text-[#8b949e]">Acme Developers</td>
-                    <td className="px-3.5 py-2 text-[#5865f2] font-semibold">{log.action}</td>
-                    <td className="px-3.5 py-2 text-[#c9d1d9]">{log.resource}</td>
-                    <td className="px-3.5 py-2 text-[#238636] font-semibold">Success</td>
-                    <td className="px-3.5 py-2 text-[#8b949e]">10.2.4.12</td>
+                    <td className="px-3.5 py-2 text-[#8b949e]">{log.server || "—"}</td>
+                    <td className="px-3.5 py-2 text-[#5865f2] font-semibold">{log.action || "—"}</td>
+                    <td className="px-3.5 py-2 text-[#c9d1d9]">{log.resource || "—"}</td>
+                    <td className="px-3.5 py-2 text-[#238636] font-semibold">{log.result || "SUCCESS"}</td>
+                    <td className="px-3.5 py-2 text-[#8b949e]">{log.ipAddress || "—"}</td>
                   </tr>
                 ))
               )}
