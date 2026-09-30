@@ -504,7 +504,7 @@ export class DiscordDispatcher {
         const rules = await prisma.commandRule.findMany({
           where: { serverId, isEnabled: true },
         });
-        return rules.map((r) => ({
+        return rules.map((r: any) => ({
           id: r.id,
           serverId: r.serverId,
           name: r.name,

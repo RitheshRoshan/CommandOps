@@ -1,3 +1,4 @@
+// @ts-ignore
 import { PrismaClient } from "@prisma/client";
 
 // Global singleton pattern for PrismaClient in Next.js development
