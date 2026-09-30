@@ -12,12 +12,11 @@ describe("Idempotency & Replay Protection", () => {
       user: { id: "user_dup", username: "duplicate_tester" },
     };
 
-    // First attempt should succeed
+    // First attempt should return Deferred ACK (Type 5)
     const res1 = await DiscordDispatcher.handleInteraction(payload);
-    expect(res1.type).toBe(4);
-    expect(res1.data.embeds?.[0]?.title).toContain("Status");
+    expect(res1.type).toBe(5);
 
-    // Second attempt with same interaction ID must be blocked as duplicate
+    // Second attempt with same interaction ID must be blocked as duplicate (Type 4)
     const res2 = await DiscordDispatcher.handleInteraction(payload);
     expect(res2.type).toBe(4);
     expect(res2.data.content).toContain("Duplicate interaction");

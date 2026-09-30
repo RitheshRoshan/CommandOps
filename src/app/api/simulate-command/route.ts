@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       data: { name: "status" },
     };
 
-    const result = await DiscordDispatcher.handleInteraction(payload);
+    const result = await DiscordDispatcher.handleInteraction(payload, { awaitBackground: true });
     return NextResponse.json({ success: true, interactionId, result });
   }
 
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    const result = await DiscordDispatcher.handleInteraction(payload);
+    const result = await DiscordDispatcher.handleInteraction(payload, { awaitBackground: true });
     return NextResponse.json({ success: true, interactionId, result });
   }
 

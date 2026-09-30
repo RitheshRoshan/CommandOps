@@ -4,10 +4,14 @@ import { sseManager } from "../sse-manager";
 import { RuleEngine, RuleDefinition } from "../rules/engine";
 import { getAIProvider } from "../ai/factory";
 import { NotificationMirrorService } from "../notifications/webhook-mirror";
+import { runBackgroundWork } from "../async-runner";
+import { sendDiscordFollowup } from "./followup";
 
 export interface DiscordInteractionPayload {
   id: string;
   type: number;
+  token?: string;
+  application_id?: string;
   guild_id?: string;
   channel_id?: string;
   member?: {
@@ -35,16 +39,22 @@ export interface DiscordInteractionPayload {
   };
 }
 
+export interface DispatcherOptions {
+  awaitBackground?: boolean;
+}
+
 export class DiscordDispatcher {
   /**
    * Main entrypoint for processing Discord interactions.
+   * Returns initial ACK (type 5) immediately for commands and modal submits,
+   * while running background processing & sending Discord follow-up via interaction token.
    */
-  static async handleInteraction(payload: DiscordInteractionPayload) {
+  static async handleInteraction(payload: DiscordInteractionPayload, options?: DispatcherOptions) {
     const interactionId = payload.id;
     const correlationId = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const startTime = Date.now();
 
-    // 1. PING Handling (Type 1)
+    // 1. PING Handling (Type 1) — Returns HTTP 200 PONG immediately (STEP 2 requirement)
     if (payload.type === 1) {
       logger.info({ event: "discord.ping", correlationId, interactionId });
       return { type: 1 };
@@ -76,7 +86,18 @@ export class DiscordDispatcher {
       const commandName = payload.data?.name || "unknown";
 
       if (commandName === "status") {
-        return DiscordDispatcher.handleStatus(serverId, channelId, userId, username, interactionId, correlationId, startTime);
+        return DiscordDispatcher.handleStatus(
+          serverId,
+          guildId,
+          channelId,
+          userId,
+          username,
+          interactionId,
+          correlationId,
+          payload,
+          startTime,
+          options
+        );
       }
 
       if (commandName === "report") {
@@ -104,7 +125,8 @@ export class DiscordDispatcher {
         interactionId,
         correlationId,
         payload,
-        startTime
+        startTime,
+        options
       );
     }
 
@@ -207,23 +229,27 @@ export class DiscordDispatcher {
   }
 
   /**
-   * Handles `/status` command execution (<50ms fast path).
+   * Handles `/status` command with immediate Deferred ACK ({ type: 5 }) and background execution.
    */
   private static async handleStatus(
     serverId: string,
+    guildId: string,
     channelId: string,
     userId: string,
     username: string,
     interactionId: string,
     correlationId: string,
-    startTime: number
+    payload: DiscordInteractionPayload,
+    startTime: number,
+    options?: DispatcherOptions
   ) {
-    const duration = Date.now() - startTime;
-    const dbAvailable = await isDbConnected();
+    const ackLatencyMs = Date.now() - startTime; // Immediate ACK duration (<100ms)
 
-    const responseContent = {
-      type: 4,
-      data: {
+    const bgProcessing = async () => {
+      const processingStart = Date.now();
+      const dbAvailable = await isDbConnected();
+
+      const responseContent = {
         embeds: [
           {
             title: "⚡ CommandOps Status — Operational",
@@ -232,39 +258,75 @@ export class DiscordDispatcher {
             fields: [
               { name: "System Status", value: "🟢 ONLINE", inline: true },
               { name: "Database", value: dbAvailable ? "🟢 CONNECTED" : "🟡 DEMO / MEMORY", inline: true },
-              { name: "Gateway Latency", value: `\`${duration}ms\``, inline: true },
+              { name: "ACK Latency", value: `\`${ackLatencyMs}ms\``, inline: true },
               { name: "Correlation ID", value: `\`${correlationId}\``, inline: false },
             ],
             footer: { text: "Discord is the interface. CommandOps is the control plane." },
             timestamp: new Date().toISOString(),
           },
         ],
-      },
+      };
+
+      const processingLatencyMs = Date.now() - processingStart;
+
+      // 1. Send Discord Follow-up via Interaction Token Webhook
+      const followupStart = Date.now();
+      await sendDiscordFollowup(payload.application_id, payload.token, responseContent);
+      const followupLatencyMs = Date.now() - followupStart;
+
+      const totalDurationMs = Date.now() - startTime;
+
+      // 2. Persist & Broadcast
+      await DiscordDispatcher.persistAndBroadcastExecution({
+        correlationId,
+        interactionId,
+        serverId,
+        channelId,
+        userId,
+        username,
+        commandName: "status",
+        title: "/status execution",
+        description: "User checked CommandOps status.",
+        severity: "LOW",
+        category: "OTHER",
+        status: "COMPLETED",
+        durationMs: totalDurationMs,
+        ackLatencyMs,
+        processingLatencyMs,
+        followupLatencyMs,
+        ruleName: "System Status Rule",
+      });
+
+      // 3. Structured Observability Log (STEP 8)
+      logger.info({
+        event: "discord.interaction_completed",
+        interaction_id: interactionId,
+        correlation_id: correlationId,
+        command: "status",
+        guild_id: guildId,
+        user_id: userId,
+        ack_latency_ms: ackLatencyMs,
+        processing_latency_ms: processingLatencyMs,
+        followup_latency_ms: followupLatencyMs,
+        final_status: "COMPLETED",
+      });
+
+      return responseContent;
     };
 
-    // Record command execution asynchronously
-    DiscordDispatcher.persistAndBroadcastExecution({
-      correlationId,
-      interactionId,
-      serverId,
-      channelId,
-      userId,
-      username,
-      commandName: "status",
-      title: "/status execution",
-      description: "User checked CommandOps status.",
-      severity: "LOW",
-      category: "OTHER",
-      status: "COMPLETED",
-      durationMs: duration,
-      ruleName: "System Status Rule",
-    });
-
-    return responseContent;
+    if (options?.awaitBackground) {
+      const data = await bgProcessing();
+      return { type: 5, data };
+    } else {
+      runBackgroundWork(async () => {
+        await bgProcessing();
+      });
+      return { type: 5 };
+    }
   }
 
   /**
-   * Opens Modal UI for `/report` command.
+   * Opens Modal UI for `/report` command (returns type 9 immediately).
    */
   private static handleReportModalTrigger(interactionId: string, correlationId: string) {
     return {
@@ -337,7 +399,7 @@ export class DiscordDispatcher {
   }
 
   /**
-   * Processes submitted Modal form for `/report`.
+   * Processes submitted Modal form for `/report` with immediate Deferred ACK ({ type: 5 }) and background processing.
    */
   private static async handleReportModalSubmit(
     serverId: string,
@@ -348,122 +410,104 @@ export class DiscordDispatcher {
     interactionId: string,
     correlationId: string,
     payload: DiscordInteractionPayload,
-    startTime: number
+    startTime: number,
+    options?: DispatcherOptions
   ) {
-    // Extract input fields from modal payload
-    const components = payload.data?.components || [];
-    let title = "";
-    let description = "";
-    let severityStr = "HIGH";
-    let categoryStr = "INCIDENT";
+    const ackLatencyMs = Date.now() - startTime; // Immediate ACK duration (<100ms)
 
-    for (const row of components) {
-      for (const comp of row.components || []) {
-        if (comp.custom_id === "report_title") title = comp.value;
-        if (comp.custom_id === "report_desc") description = comp.value;
-        if (comp.custom_id === "report_severity") severityStr = comp.value.toUpperCase();
-        if (comp.custom_id === "report_category") categoryStr = comp.value.toUpperCase();
+    const bgProcessing = async () => {
+      const processingStart = Date.now();
+
+      // Extract input fields from modal payload
+      const components = payload.data?.components || [];
+      let title = "";
+      let description = "";
+      let severityStr = "HIGH";
+      let categoryStr = "INCIDENT";
+
+      for (const row of components) {
+        for (const comp of row.components || []) {
+          if (comp.custom_id === "report_title") title = comp.value;
+          if (comp.custom_id === "report_desc") description = comp.value;
+          if (comp.custom_id === "report_severity") severityStr = comp.value.toUpperCase();
+          if (comp.custom_id === "report_category") categoryStr = comp.value.toUpperCase();
+        }
       }
-    }
 
-    const validSeverities = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-    const severity = validSeverities.includes(severityStr) ? severityStr : "HIGH";
+      const validSeverities = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+      const severity = validSeverities.includes(severityStr) ? severityStr : "HIGH";
 
-    const validCategories = ["BUG", "INCIDENT", "REQUEST", "PAYMENT", "INFRASTRUCTURE", "OTHER"];
-    const category = validCategories.includes(categoryStr) ? categoryStr : "INCIDENT";
+      const validCategories = ["BUG", "INCIDENT", "REQUEST", "PAYMENT", "INFRASTRUCTURE", "OTHER"];
+      const category = validCategories.includes(categoryStr) ? categoryStr : "INCIDENT";
 
-    // Evaluate Rule Engine
-    const rules = await DiscordDispatcher.fetchServerRules(serverId);
-    const ruleEvaluation = RuleEngine.evaluate(
-      {
-        serverId,
-        commandName: "report",
-        severity,
-        category,
-        username,
-      },
-      rules
-    );
-
-    // AI Enrichment Pipeline (Advisory)
-    let aiSummary = "AI enrichment unavailable — command processed without AI.";
-    let aiStatus: "SUCCESS" | "UNAVAILABLE" | "FAILED" = "UNAVAILABLE";
-    let aiAnalysis: any = null;
-
-    if (ruleEvaluation.executedActions.includes("AI_ENRICHMENT")) {
-      try {
-        const aiProvider = getAIProvider();
-        aiAnalysis = await aiProvider.analyzeReport({
-          title,
-          description,
-          userProvidedSeverity: severity,
-          userProvidedCategory: category,
-        });
-        aiSummary = aiAnalysis.summary;
-        aiStatus = "SUCCESS";
-      } catch (err: any) {
-        logger.warn({ event: "ai.enrichment_failed", correlationId, error: err.message });
-        aiStatus = "FAILED";
-      }
-    }
-
-    // Mirror Webhook Notification Delivery
-    let mirrorStatus: "SUCCESS" | "FAILED" | "SKIPPED" = "SKIPPED";
-    if (ruleEvaluation.executedActions.includes("MIRROR_NOTIFICATION")) {
-      const webhookUrl = process.env.DEFAULT_MIRROR_WEBHOOK_URL;
-      if (webhookUrl && !webhookUrl.includes("mock")) {
-        const result = await NotificationMirrorService.deliverWithRetry({
-          webhookUrl,
-          commandExecutionId: correlationId,
-          correlationId,
+      // Evaluate Rule Engine
+      const rules = await DiscordDispatcher.fetchServerRules(serverId);
+      const ruleEvaluation = RuleEngine.evaluate(
+        {
+          serverId,
           commandName: "report",
-          title,
-          description,
           severity,
           category,
-          aiSummary,
           username,
-        });
-        mirrorStatus = result.success ? "SUCCESS" : "FAILED";
-      } else {
-        mirrorStatus = "SUCCESS"; // Simulated mirror delivery in test/dev
+        },
+        rules
+      );
+
+      // AI Enrichment Pipeline (Advisory)
+      let aiSummary = "AI enrichment unavailable — command processed without AI.";
+      let aiStatus: "SUCCESS" | "UNAVAILABLE" | "FAILED" = "UNAVAILABLE";
+      let aiAnalysis: any = null;
+
+      if (ruleEvaluation.executedActions.includes("AI_ENRICHMENT")) {
+        try {
+          const aiProvider = getAIProvider();
+          aiAnalysis = await aiProvider.analyzeReport({
+            title,
+            description,
+            userProvidedSeverity: severity,
+            userProvidedCategory: category,
+          });
+          aiSummary = aiAnalysis.summary;
+          aiStatus = "SUCCESS";
+        } catch (err: any) {
+          logger.warn({ event: "ai.enrichment_failed", correlationId, error: err.message });
+          aiStatus = "FAILED";
+        }
       }
-    }
 
-    const duration = Date.now() - startTime;
+      // Mirror Webhook Notification Delivery
+      let mirrorStatus: "SUCCESS" | "FAILED" | "SKIPPED" = "SKIPPED";
+      if (ruleEvaluation.executedActions.includes("MIRROR_NOTIFICATION")) {
+        const webhookUrl = process.env.DEFAULT_MIRROR_WEBHOOK_URL;
+        if (webhookUrl && !webhookUrl.includes("mock")) {
+          const result = await NotificationMirrorService.deliverWithRetry({
+            webhookUrl,
+            commandExecutionId: correlationId,
+            correlationId,
+            commandName: "report",
+            title,
+            description,
+            severity,
+            category,
+            aiSummary,
+            username,
+          });
+          mirrorStatus = result.success ? "SUCCESS" : "FAILED";
+        } else {
+          mirrorStatus = "SUCCESS"; // Simulated mirror delivery in test/dev
+        }
+      }
 
-    // Persist and Broadcast
-    await DiscordDispatcher.persistAndBroadcastExecution({
-      correlationId,
-      interactionId,
-      serverId,
-      channelId,
-      userId,
-      username,
-      commandName: "report",
-      title,
-      description,
-      severity,
-      category,
-      status: "COMPLETED",
-      durationMs: duration,
-      ruleName: ruleEvaluation.matchedRule?.name || "Default Rule",
-      aiSummary,
-      aiStatus,
-      aiAnalysis,
-      mirrorStatus,
-    });
+      const processingLatencyMs = Date.now() - processingStart;
 
-    const severityColors: Record<string, number> = {
-      LOW: 0x3b82f6,
-      MEDIUM: 0xf59e0b,
-      HIGH: 0xef4444,
-      CRITICAL: 0x991b1b,
-    };
+      const severityColors: Record<string, number> = {
+        LOW: 0x3b82f6,
+        MEDIUM: 0xf59e0b,
+        HIGH: 0xef4444,
+        CRITICAL: 0x991b1b,
+      };
 
-    return {
-      type: 4,
-      data: {
+      const followupContent = {
         embeds: [
           {
             title: `🛡️ CommandOps Report Received: ${title}`,
@@ -474,7 +518,7 @@ export class DiscordDispatcher {
               { name: "Correlation ID", value: `\`${correlationId}\``, inline: true },
               { name: "AI Summary", value: aiSummary, inline: false },
               { name: "Rule Applied", value: ruleEvaluation.matchedRule?.name || "Default Rule", inline: true },
-              { name: "Execution Time", value: `\`${duration}ms\``, inline: true },
+              { name: "ACK Latency", value: `\`${ackLatencyMs}ms\``, inline: true },
             ],
             footer: { text: "Discord is the interface. CommandOps is the control plane." },
             timestamp: new Date().toISOString(),
@@ -493,8 +537,67 @@ export class DiscordDispatcher {
             ],
           },
         ],
-      },
+      };
+
+      // 1. Send Discord Follow-up via Interaction Token Webhook
+      const followupStart = Date.now();
+      const followupResult = await sendDiscordFollowup(payload.application_id, payload.token, followupContent);
+      const followupLatencyMs = Date.now() - followupStart;
+
+      const totalDurationMs = Date.now() - startTime;
+      const finalStatus = followupResult.success ? "COMPLETED" : "DEGRADED";
+
+      // 2. Persist & Broadcast
+      await DiscordDispatcher.persistAndBroadcastExecution({
+        correlationId,
+        interactionId,
+        serverId,
+        channelId,
+        userId,
+        username,
+        commandName: "report",
+        title,
+        description,
+        severity,
+        category,
+        status: finalStatus,
+        durationMs: totalDurationMs,
+        ackLatencyMs,
+        processingLatencyMs,
+        followupLatencyMs,
+        ruleName: ruleEvaluation.matchedRule?.name || "Default Rule",
+        aiSummary,
+        aiStatus,
+        aiAnalysis,
+        mirrorStatus,
+      });
+
+      // 3. Structured Observability Log (STEP 8)
+      logger.info({
+        event: "discord.interaction_completed",
+        interaction_id: interactionId,
+        correlation_id: correlationId,
+        command: "report",
+        guild_id: guildId,
+        user_id: userId,
+        ack_latency_ms: ackLatencyMs,
+        processing_latency_ms: processingLatencyMs,
+        followup_latency_ms: followupLatencyMs,
+        final_status: finalStatus,
+      });
+
+      return followupContent;
     };
+
+    if (options?.awaitBackground) {
+      const data = await bgProcessing();
+      return { type: 5, data };
+    } else {
+      runBackgroundWork(async () => {
+        await bgProcessing();
+      });
+      return { type: 5 };
+    }
   }
 
   private static async fetchServerRules(serverId: string): Promise<RuleDefinition[]> {
@@ -536,6 +639,9 @@ export class DiscordDispatcher {
     category?: string;
     status: string;
     durationMs: number;
+    ackLatencyMs?: number;
+    processingLatencyMs?: number;
+    followupLatencyMs?: number;
     ruleName?: string;
     aiSummary?: string;
     aiStatus?: string;
@@ -558,6 +664,11 @@ export class DiscordDispatcher {
       category: (data.category as any) || "OTHER",
       status: (data.status as any) || "COMPLETED",
       executionTimeMs: data.durationMs,
+      rawInput: {
+        ackLatencyMs: data.ackLatencyMs || 0,
+        processingLatencyMs: data.processingLatencyMs || 0,
+        followupLatencyMs: data.followupLatencyMs || 0,
+      },
       createdAt: new Date(),
     };
 
@@ -577,7 +688,7 @@ export class DiscordDispatcher {
               suggestedCategory: (data.category as any) || "OTHER",
               suggestedSeverity: (data.severity as any) || "HIGH",
               rawResponse: data.aiAnalysis || {},
-              latencyMs: 120,
+              latencyMs: data.processingLatencyMs || 120,
             },
           });
         }
@@ -605,6 +716,9 @@ export class DiscordDispatcher {
         aiSummary: data.aiSummary,
         aiStatus: data.aiStatus,
         mirrorStatus: data.mirrorStatus,
+        ackLatencyMs: data.ackLatencyMs,
+        processingLatencyMs: data.processingLatencyMs,
+        followupLatencyMs: data.followupLatencyMs,
       });
     }
 
@@ -615,6 +729,9 @@ export class DiscordDispatcher {
       aiSummary: data.aiSummary,
       aiStatus: data.aiStatus,
       mirrorStatus: data.mirrorStatus,
+      ackLatencyMs: data.ackLatencyMs,
+      processingLatencyMs: data.processingLatencyMs,
+      followupLatencyMs: data.followupLatencyMs,
     });
   }
 }
