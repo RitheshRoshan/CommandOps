@@ -37,10 +37,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
-
-      - name: Lint Code
-        run: npm run lint
+        run: npm ci --foreground-scripts
 
       - name: Generate Prisma Client
         run: npx prisma generate
@@ -49,6 +46,9 @@ jobs:
         run: npx prisma db push
         env:
           DATABASE_URL: "postgresql://commandops:commandops123@localhost:5432/commandops_db?schema=public"
+
+      - name: Lint Code
+        run: npm run lint
 
       - name: Run Unit & Integration Tests
         run: npm test

@@ -15,6 +15,8 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+ENV DATABASE_URL="postgresql://commandops:commandops123@localhost:5432/commandops_db?schema=public"
+ENV AUTH_SECRET="production_build_placeholder_secret_key_12345"
 
 RUN mkdir -p public
 RUN npx prisma generate
