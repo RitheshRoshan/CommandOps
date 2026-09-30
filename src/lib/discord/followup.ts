@@ -23,10 +23,10 @@ export async function sendDiscordFollowup(
     return { success: true };
   }
 
-  const appId = applicationId || process.env.DISCORD_APPLICATION_ID;
+  const appId = applicationId || process.env.DISCORD_APPLICATION_ID || process.env.DISCORD_CLIENT_ID;
   if (!appId) {
     logger.warn({ event: "discord.followup_missing_app_id" });
-    return { success: false, error: "Missing DISCORD_APPLICATION_ID" };
+    return { success: false, error: "Missing DISCORD_APPLICATION_ID or DISCORD_CLIENT_ID" };
   }
 
   const patchUrl = `https://discord.com/api/v10/webhooks/${appId}/${interactionToken}/messages/@original`;

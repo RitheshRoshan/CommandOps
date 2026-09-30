@@ -8,6 +8,11 @@ interface CommandDetailDrawerProps {
   onClose: () => void;
 }
 
+function formatMsDisplay(val?: number): string {
+  if (val === undefined || val === null || isNaN(val)) return "N/A";
+  return `${val}ms`;
+}
+
 export default function CommandDetailDrawer({ execution, onClose }: CommandDetailDrawerProps) {
   if (!execution) return null;
 
@@ -15,13 +20,14 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
     navigator.clipboard.writeText(text);
   };
 
+  const raw = execution.rawInput || {};
   const serverName = execution.server?.name || execution.server || "Unknown server";
   const channelName = execution.channelId ? `#${execution.channelId}` : execution.channel || "Unknown channel";
-  const durationText = execution.executionTimeMs !== undefined && execution.executionTimeMs !== null ? `${execution.executionTimeMs}ms` : (execution.durationMs !== undefined ? `${execution.durationMs}ms` : "—");
 
-  const ackMs = execution.ackLatencyMs ?? (execution.rawInput?.ackLatencyMs ?? "—");
-  const procMs = execution.processingLatencyMs ?? (execution.rawInput?.processingLatencyMs ?? "—");
-  const followMs = execution.followupLatencyMs ?? (execution.rawInput?.followupLatencyMs ?? "—");
+  const ackMs = execution.ackProcessingMs ?? raw.ackProcessingMs;
+  const procMs = execution.commandProcessingMs ?? raw.commandProcessingMs;
+  const followMs = execution.followupMs ?? raw.followupMs;
+  const totalMs = execution.executionTimeMs;
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0d1117] border-l border-[#30363d] shadow-2xl flex flex-col justify-between font-mono text-xs text-[#c9d1d9] animate-in slide-in-from-right duration-150">
@@ -94,20 +100,20 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
             <span className="text-[#f0f6fc] select-all truncate ml-2">{execution.interactionId || "—"}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
-            <span className="text-[#8b949e]">Discord ACK Latency</span>
-            <span className="text-[#238636] font-bold">{ackMs === "—" ? "—" : `${ackMs}ms`}</span>
+            <span className="text-[#8b949e]">ACK Response Time</span>
+            <span className="text-[#238636] font-bold">{formatMsDisplay(ackMs)}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
-            <span className="text-[#8b949e]">Processing Latency</span>
-            <span className="text-[#388bfd] font-bold">{procMs === "—" ? "—" : `${procMs}ms`}</span>
+            <span className="text-[#8b949e]">Command Processing</span>
+            <span className="text-[#388bfd] font-bold">{formatMsDisplay(procMs)}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
-            <span className="text-[#8b949e]">Follow-up Latency</span>
-            <span className="text-[#5865f2] font-bold">{followMs === "—" ? "—" : `${followMs}ms`}</span>
+            <span className="text-[#8b949e]">Discord Follow-up</span>
+            <span className="text-[#5865f2] font-bold">{formatMsDisplay(followMs)}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
             <span className="text-[#8b949e]">Total Lifecycle</span>
-            <span className="text-[#f0f6fc] font-bold">{durationText}</span>
+            <span className="text-[#f0f6fc] font-bold">{formatMsDisplay(totalMs)}</span>
           </div>
         </div>
 
@@ -131,9 +137,9 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
                 user: execution.username || execution.user,
                 severity: execution.severity || "LOW",
                 category: execution.category || "OTHER",
-                ackLatencyMs: ackMs,
-                processingLatencyMs: procMs,
-                followupLatencyMs: followMs,
+                ackProcessingMs: formatMsDisplay(ackMs),
+                commandProcessingMs: formatMsDisplay(procMs),
+                followupMs: formatMsDisplay(followMs),
                 ed25519Signature: "VERIFIED_OK",
               },
               null,

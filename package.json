@@ -21,6 +21,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
     "@prisma/client": "^6.4.1",
+    "@vercel/functions": "^3.9.9",
     "bcryptjs": "^3.0.2",
     "clsx": "^2.1.1",
     "jose": "^6.0.8",

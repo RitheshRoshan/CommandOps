@@ -41,9 +41,11 @@ export interface DiscordInteractionPayload {
 
 export interface DispatcherOptions {
   awaitBackground?: boolean;
+  requestReceivedAt?: number;
+  signatureVerifiedAt?: number;
 }
 
-// In-Memory Fast Idempotency cache for sub-millisecond ACK validation
+// Bounded In-Memory Fast Idempotency cache for sub-millisecond ACK validation
 const seenInteractions = new Set<string>();
 const MAX_SEEN_INTERACTIONS = 10000;
 
@@ -58,18 +60,25 @@ function checkAndRecordFastIdempotency(interactionId: string): boolean {
   return false;
 }
 
+function formatMsValue(val?: number): string {
+  if (val === undefined || val === null || isNaN(val)) return "N/A";
+  return `${val}ms`;
+}
+
 export class DiscordDispatcher {
   /**
    * Main entrypoint for processing Discord interactions.
-   * Performs Ed25519, minimal payload parsing, and fast in-memory idempotency check,
+   * Performs Ed25519 verification, minimal payload parsing, and fast in-memory idempotency check,
    * returning Discord's initial ACK ({ type: 5 }) in <20ms without waiting for DB or network calls.
    */
   static async handleInteraction(payload: DiscordInteractionPayload, options?: DispatcherOptions) {
     const interactionId = payload.id;
     const correlationId = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const startTime = Date.now();
+    const reqStart = options?.requestReceivedAt || startTime;
+    const sigVerifyAt = options?.signatureVerifiedAt || startTime;
 
-    // 1. PING Handling (Type 1) — Returns HTTP 200 PONG immediately (STEP 2)
+    // 1. PING Handling (Type 1) — Returns HTTP 200 PONG immediately (STEP 2 & 11)
     if (payload.type === 1) {
       logger.info({ event: "discord.ping", correlationId, interactionId });
       return { type: 1 };
@@ -106,7 +115,8 @@ export class DiscordDispatcher {
           interactionId,
           correlationId,
           payload,
-          startTime,
+          reqStart,
+          sigVerifyAt,
           options
         );
       }
@@ -135,7 +145,8 @@ export class DiscordDispatcher {
         interactionId,
         correlationId,
         payload,
-        startTime,
+        reqStart,
+        sigVerifyAt,
         options
       );
     }
@@ -240,11 +251,14 @@ export class DiscordDispatcher {
     interactionId: string,
     correlationId: string,
     payload: DiscordInteractionPayload,
-    startTime: number,
+    requestReceivedAt: number,
+    signatureVerifiedAt: number,
     options?: DispatcherOptions
   ) {
-    // Record instant ACK latency (<20ms)
-    const ackLatencyMs = Date.now() - startTime;
+    // Record exact server-side ACK response creation time
+    const ackResponseCreatedAt = Date.now();
+    const ackProcessingMs = Math.max(1, ackResponseCreatedAt - requestReceivedAt);
+    const sigVerifyMs = Math.max(1, signatureVerifiedAt - requestReceivedAt);
 
     const bgProcessing = async () => {
       const processingStart = Date.now();
@@ -264,7 +278,7 @@ export class DiscordDispatcher {
             fields: [
               { name: "System Status", value: "🟢 ONLINE", inline: true },
               { name: "Database", value: dbAvailable ? "🟢 CONNECTED" : "🟡 DEMO / MEMORY", inline: true },
-              { name: "ACK Latency", value: `\`${ackLatencyMs}ms\``, inline: true },
+              { name: "ACK Response Time", value: `\`${formatMsValue(ackProcessingMs)}\``, inline: true },
               { name: "Correlation ID", value: `\`${correlationId}\``, inline: false },
             ],
             footer: { text: "Discord is the interface. CommandOps is the control plane." },
@@ -273,14 +287,16 @@ export class DiscordDispatcher {
         ],
       };
 
-      const processingLatencyMs = Date.now() - processingStart;
+      const processingCompletedAt = Date.now();
+      const commandProcessingMs = processingCompletedAt - processingStart;
 
       // 1. Send Discord Follow-up via Interaction Token Webhook
       const followupStart = Date.now();
-      await sendDiscordFollowup(payload.application_id, payload.token, responseContent);
-      const followupLatencyMs = Date.now() - followupStart;
+      const followupResult = await sendDiscordFollowup(payload.application_id, payload.token, responseContent);
+      const followupCompletedAt = Date.now();
+      const followupMs = followupCompletedAt - followupStart;
 
-      const totalLifecycleMs = Date.now() - startTime;
+      const totalLifecycleMs = followupCompletedAt - requestReceivedAt;
 
       // 2. Persist & Broadcast
       await DiscordDispatcher.persistAndBroadcastExecution({
@@ -295,15 +311,23 @@ export class DiscordDispatcher {
         description: "User checked CommandOps status.",
         severity: "LOW",
         category: "OTHER",
-        status: "COMPLETED",
+        status: followupResult.success ? "COMPLETED" : "DEGRADED",
         durationMs: totalLifecycleMs,
-        ackLatencyMs,
-        processingLatencyMs,
-        followupLatencyMs,
+        ackProcessingMs,
+        sigVerifyMs,
+        commandProcessingMs,
+        followupMs,
+        requestReceivedAt,
+        signatureVerifiedAt,
+        ackResponseCreatedAt,
+        processingStartedAt: processingStart,
+        processingCompletedAt,
+        followupStartedAt: followupStart,
+        followupCompletedAt,
         ruleName: "System Status Rule",
       });
 
-      // 3. Structured Observability Log (STEP 8)
+      // 3. Structured Observability Log (SECTION 3 & 5)
       logger.info({
         event: "discord.interaction_completed",
         interaction_id: interactionId,
@@ -311,11 +335,11 @@ export class DiscordDispatcher {
         command: "status",
         guild_id: guildId,
         user_id: userId,
-        ack_latency_ms: ackLatencyMs,
-        processing_latency_ms: processingLatencyMs,
-        followup_latency_ms: followupLatencyMs,
+        ack_response_time_ms: ackProcessingMs,
+        command_processing_ms: commandProcessingMs,
+        followup_latency_ms: followupMs,
         total_lifecycle_ms: totalLifecycleMs,
-        final_status: "COMPLETED",
+        final_status: followupResult.success ? "COMPLETED" : "DEGRADED",
       });
 
       return responseContent;
@@ -416,11 +440,14 @@ export class DiscordDispatcher {
     interactionId: string,
     correlationId: string,
     payload: DiscordInteractionPayload,
-    startTime: number,
+    requestReceivedAt: number,
+    signatureVerifiedAt: number,
     options?: DispatcherOptions
   ) {
-    // Record instant ACK latency (<20ms)
-    const ackLatencyMs = Date.now() - startTime;
+    // Record exact server-side ACK response creation time
+    const ackResponseCreatedAt = Date.now();
+    const ackProcessingMs = Math.max(1, ackResponseCreatedAt - requestReceivedAt);
+    const sigVerifyMs = Math.max(1, signatureVerifiedAt - requestReceivedAt);
 
     const bgProcessing = async () => {
       const processingStart = Date.now();
@@ -509,7 +536,8 @@ export class DiscordDispatcher {
         }
       }
 
-      const processingLatencyMs = Date.now() - processingStart;
+      const processingCompletedAt = Date.now();
+      const commandProcessingMs = processingCompletedAt - processingStart;
 
       const severityColors: Record<string, number> = {
         LOW: 0x3b82f6,
@@ -529,7 +557,7 @@ export class DiscordDispatcher {
               { name: "Correlation ID", value: `\`${correlationId}\``, inline: true },
               { name: "AI Summary", value: aiSummary, inline: false },
               { name: "Rule Applied", value: ruleEvaluation.matchedRule?.name || "Default Rule", inline: true },
-              { name: "ACK Latency", value: `\`${ackLatencyMs}ms\``, inline: true },
+              { name: "ACK Response Time", value: `\`${formatMsValue(ackProcessingMs)}\``, inline: true },
             ],
             footer: { text: "Discord is the interface. CommandOps is the control plane." },
             timestamp: new Date().toISOString(),
@@ -553,9 +581,10 @@ export class DiscordDispatcher {
       // 1. Send Discord Follow-up via Interaction Token Webhook
       const followupStart = Date.now();
       const followupResult = await sendDiscordFollowup(payload.application_id, payload.token, followupContent);
-      const followupLatencyMs = Date.now() - followupStart;
+      const followupCompletedAt = Date.now();
+      const followupMs = followupCompletedAt - followupStart;
 
-      const totalLifecycleMs = Date.now() - startTime;
+      const totalLifecycleMs = followupCompletedAt - requestReceivedAt;
       const finalStatus = followupResult.success ? "COMPLETED" : "DEGRADED";
 
       // 2. Persist & Broadcast
@@ -573,9 +602,17 @@ export class DiscordDispatcher {
         category,
         status: finalStatus,
         durationMs: totalLifecycleMs,
-        ackLatencyMs,
-        processingLatencyMs,
-        followupLatencyMs,
+        ackProcessingMs,
+        sigVerifyMs,
+        commandProcessingMs,
+        followupMs,
+        requestReceivedAt,
+        signatureVerifiedAt,
+        ackResponseCreatedAt,
+        processingStartedAt: processingStart,
+        processingCompletedAt,
+        followupStartedAt: followupStart,
+        followupCompletedAt,
         ruleName: ruleEvaluation.matchedRule?.name || "Default Rule",
         aiSummary,
         aiStatus,
@@ -583,7 +620,7 @@ export class DiscordDispatcher {
         mirrorStatus,
       });
 
-      // 3. Structured Observability Log (STEP 8)
+      // 3. Structured Observability Log (SECTION 3 & 5)
       logger.info({
         event: "discord.interaction_completed",
         interaction_id: interactionId,
@@ -591,9 +628,9 @@ export class DiscordDispatcher {
         command: "report",
         guild_id: guildId,
         user_id: userId,
-        ack_latency_ms: ackLatencyMs,
-        processing_latency_ms: processingLatencyMs,
-        followup_latency_ms: followupLatencyMs,
+        ack_response_time_ms: ackProcessingMs,
+        command_processing_ms: commandProcessingMs,
+        followup_latency_ms: followupMs,
         total_lifecycle_ms: totalLifecycleMs,
         final_status: finalStatus,
       });
@@ -651,9 +688,17 @@ export class DiscordDispatcher {
     category?: string;
     status: string;
     durationMs: number;
-    ackLatencyMs?: number;
-    processingLatencyMs?: number;
-    followupLatencyMs?: number;
+    ackProcessingMs?: number;
+    sigVerifyMs?: number;
+    commandProcessingMs?: number;
+    followupMs?: number;
+    requestReceivedAt?: number;
+    signatureVerifiedAt?: number;
+    ackResponseCreatedAt?: number;
+    processingStartedAt?: number;
+    processingCompletedAt?: number;
+    followupStartedAt?: number;
+    followupCompletedAt?: number;
     ruleName?: string;
     aiSummary?: string;
     aiStatus?: string;
@@ -677,9 +722,17 @@ export class DiscordDispatcher {
       status: (data.status as any) || "COMPLETED",
       executionTimeMs: data.durationMs,
       rawInput: {
-        ackLatencyMs: data.ackLatencyMs || 0,
-        processingLatencyMs: data.processingLatencyMs || 0,
-        followupLatencyMs: data.followupLatencyMs || 0,
+        ackProcessingMs: data.ackProcessingMs,
+        sigVerifyMs: data.sigVerifyMs,
+        commandProcessingMs: data.commandProcessingMs,
+        followupMs: data.followupMs,
+        requestReceivedAt: data.requestReceivedAt,
+        signatureVerifiedAt: data.signatureVerifiedAt,
+        ackResponseCreatedAt: data.ackResponseCreatedAt,
+        processingStartedAt: data.processingStartedAt,
+        processingCompletedAt: data.processingCompletedAt,
+        followupStartedAt: data.followupStartedAt,
+        followupCompletedAt: data.followupCompletedAt,
       },
       createdAt: new Date(),
     };
@@ -700,7 +753,7 @@ export class DiscordDispatcher {
               suggestedCategory: (data.category as any) || "OTHER",
               suggestedSeverity: (data.severity as any) || "HIGH",
               rawResponse: data.aiAnalysis || {},
-              latencyMs: data.processingLatencyMs || 120,
+              latencyMs: data.commandProcessingMs || 120,
             },
           });
         }
@@ -728,9 +781,9 @@ export class DiscordDispatcher {
         aiSummary: data.aiSummary,
         aiStatus: data.aiStatus,
         mirrorStatus: data.mirrorStatus,
-        ackLatencyMs: data.ackLatencyMs,
-        processingLatencyMs: data.processingLatencyMs,
-        followupLatencyMs: data.followupLatencyMs,
+        ackProcessingMs: data.ackProcessingMs,
+        commandProcessingMs: data.commandProcessingMs,
+        followupMs: data.followupMs,
       });
     }
 
@@ -741,9 +794,9 @@ export class DiscordDispatcher {
       aiSummary: data.aiSummary,
       aiStatus: data.aiStatus,
       mirrorStatus: data.mirrorStatus,
-      ackLatencyMs: data.ackLatencyMs,
-      processingLatencyMs: data.processingLatencyMs,
-      followupLatencyMs: data.followupLatencyMs,
+      ackProcessingMs: data.ackProcessingMs,
+      commandProcessingMs: data.commandProcessingMs,
+      followupMs: data.followupMs,
     });
   }
 }

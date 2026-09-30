@@ -1,21 +1,27 @@
+import { waitUntil } from "@vercel/functions";
 import { after } from "next/server";
 import { logger } from "./logger";
 
 /**
  * Executes background tasks safely in Vercel serverless functions.
- * Uses Next.js `after()` to ensure the lambda execution context remains active
- * until the background task completes, after returning the initial response to the client.
+ * Uses `@vercel/functions` waitUntil() and Next.js after() to guarantee
+ * the serverless lambda function remains active until background processing completes.
  */
 export function runBackgroundWork(task: () => Promise<void>): void {
-  try {
-    after(task);
-  } catch (err) {
-    // Fallback for non-Next environments (e.g., Vitest test runner)
-    task().catch((e) => {
-      logger.error({
-        event: "background_task.uncaught_error",
-        error: e.message || String(e),
-      });
+  const promise = task().catch((e) => {
+    logger.error({
+      event: "background_task.uncaught_error",
+      error: e.message || String(e),
     });
+  });
+
+  try {
+    waitUntil(promise);
+  } catch {
+    try {
+      after(() => promise);
+    } catch {
+      // Promise is executing directly
+    }
   }
 }

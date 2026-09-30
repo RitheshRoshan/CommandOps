@@ -4,9 +4,14 @@ interface ExecutionTimelineProps {
   execution: {
     createdAt: string;
     executionTimeMs?: number;
-    ackLatencyMs?: number;
-    processingLatencyMs?: number;
-    followupLatencyMs?: number;
+    ackProcessingMs?: number;
+    commandProcessingMs?: number;
+    followupMs?: number;
+    requestReceivedAt?: number;
+    signatureVerifiedAt?: number;
+    ackResponseCreatedAt?: number;
+    processingCompletedAt?: number;
+    followupCompletedAt?: number;
     rawInput?: any;
     status: string;
     matchedRuleId?: string;
@@ -16,24 +21,40 @@ interface ExecutionTimelineProps {
   };
 }
 
-export default function ExecutionTimeline({ execution }: ExecutionTimelineProps) {
-  const timeStr = execution.createdAt ? new Date(execution.createdAt).toLocaleTimeString() : "—";
-  const durationStr = execution.executionTimeMs !== undefined && execution.executionTimeMs !== null ? `${execution.executionTimeMs}ms` : "—";
+function formatMsDisplay(val?: number): string {
+  if (val === undefined || val === null || isNaN(val)) return "N/A";
+  return `${val}ms`;
+}
 
-  const ackMs = execution.ackLatencyMs ?? (execution.rawInput?.ackLatencyMs || 12);
-  const followupMs = execution.followupLatencyMs ?? (execution.rawInput?.followupLatencyMs || 0);
+function formatTimeDisplay(ts?: number | string): string {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleTimeString();
+}
+
+export default function ExecutionTimeline({ execution }: ExecutionTimelineProps) {
+  const raw = execution.rawInput || {};
+  const ackMs = execution.ackProcessingMs ?? raw.ackProcessingMs;
+  const procMs = execution.commandProcessingMs ?? raw.commandProcessingMs;
+  const followMs = execution.followupMs ?? raw.followupMs;
+  const totalMs = execution.executionTimeMs;
+
+  const reqTime = formatTimeDisplay(raw.requestReceivedAt || execution.createdAt);
+  const sigTime = formatTimeDisplay(raw.signatureVerifiedAt || execution.createdAt);
+  const ackTime = formatTimeDisplay(raw.ackResponseCreatedAt || execution.createdAt);
+  const procTime = formatTimeDisplay(raw.processingCompletedAt || execution.createdAt);
+  const followTime = formatTimeDisplay(raw.followupCompletedAt || execution.createdAt);
 
   const timelineSteps = [
-    { time: timeStr, label: "Interaction Gateway Received", status: "200 OK", isSuccess: true },
-    { time: timeStr, label: "Signature VERIFIED", status: "ED25519 OK", isSuccess: true },
-    { time: timeStr, label: `Discord ACK SENT (${ackMs}ms)`, status: "DEFERRED (Type 5)", isSuccess: true },
-    { time: timeStr, label: "Rule Engine Policy Evaluation", status: execution.matchedRuleId && execution.matchedRuleId !== "—" ? "RULE MATCHED" : "DEFAULT PASS", isSuccess: true },
+    { time: reqTime, label: "Interaction Gateway Received", status: "200 OK", isSuccess: true },
+    { time: sigTime, label: "Ed25519 Signature VERIFIED", status: "ED25519 OK", isSuccess: true },
+    { time: ackTime, label: `Discord Interaction ACK SENT (${formatMsDisplay(ackMs)})`, status: "DEFERRED (Type 5)", isSuccess: true },
+    { time: procTime, label: "Rule Engine Policy Evaluation", status: execution.matchedRuleId && execution.matchedRuleId !== "—" ? "RULE MATCHED" : "DEFAULT PASS", isSuccess: true },
   ];
 
   if (execution.aiEnrichment) {
     timelineSteps.push({
-      time: timeStr,
-      label: `Advisory AI Triage (${execution.aiEnrichment.latencyMs || 0}ms)`,
+      time: procTime,
+      label: `Advisory AI Triage (${formatMsDisplay(execution.aiEnrichment.latencyMs)})`,
       status: execution.aiEnrichment.status,
       isSuccess: execution.aiEnrichment.status === "SUCCESS",
     });
@@ -42,7 +63,7 @@ export default function ExecutionTimeline({ execution }: ExecutionTimelineProps)
   if (execution.notificationDeliveries && execution.notificationDeliveries.length > 0) {
     execution.notificationDeliveries.forEach((nd, idx) => {
       timelineSteps.push({
-        time: timeStr,
+        time: procTime,
         label: `Webhook Mirror Delivery #${idx + 1} (${nd.attempts} attempt${nd.attempts > 1 ? "s" : ""})`,
         status: nd.status,
         isSuccess: nd.status === "SUCCESS",
@@ -51,16 +72,16 @@ export default function ExecutionTimeline({ execution }: ExecutionTimelineProps)
   }
 
   timelineSteps.push({
-    time: timeStr,
-    label: `Discord Follow-up SENT (${followupMs}ms)`,
+    time: followTime,
+    label: `Discord Follow-up SENT (${formatMsDisplay(followMs)})`,
     status: "WEBHOOK SENT",
     isSuccess: true,
   });
 
   timelineSteps.push({
-    time: timeStr,
-    label: "Command Execution Lifecycle",
-    status: `${execution.status || "COMPLETED"} (${durationStr})`,
+    time: followTime,
+    label: "Discord Command Lifecycle",
+    status: `${execution.status || "COMPLETED"} (${formatMsDisplay(totalMs)})`,
     isSuccess: execution.status === "COMPLETED",
   });
 
