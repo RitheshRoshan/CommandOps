@@ -1,0 +1,242 @@
+// CommandOps Database Schema (PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum Category {
+  BUG
+  INCIDENT
+  REQUEST
+  OTHER
+  PAYMENT
+  INFRASTRUCTURE
+}
+
+enum ExecutionStatus {
+  RECEIVED
+  ACKNOWLEDGED
+  DEFERRED
+  PROCESSING
+  COMPLETED
+  DEGRADED
+  FAILED
+}
+
+enum ActionStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  RETRYING
+  FAILED
+}
+
+enum AIStatus {
+  PENDING
+  SUCCESS
+  UNAVAILABLE
+  FAILED
+}
+
+model AdminUser {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         String     @default("ADMIN")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  auditLogs    AuditLog[]
+
+  @@map("admin_users")
+}
+
+model DiscordServer {
+  id                String             @id @default(uuid())
+  discordGuildId    String             @unique
+  name              String
+  iconUrl           String?
+  mirrorWebhookUrl  String?
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  commandExecutions CommandExecution[]
+  commandRules      CommandRule[]
+  memberships       ServerMembership[]
+
+  @@index([discordGuildId])
+  @@map("discord_servers")
+}
+
+model ServerMembership {
+  id        String        @id @default(uuid())
+  serverId  String
+  userId    String
+  role      String        @default("MEMBER")
+  createdAt DateTime      @default(now())
+  server    DiscordServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, userId])
+  @@map("server_memberships")
+}
+
+model InteractionRecord {
+  id                String            @id @default(uuid())
+  interactionId     String            @unique
+  correlationId     String            @unique
+  interactionType   Int
+  guildId           String?
+  channelId         String?
+  userId            String
+  username          String
+  rawPayload        Json
+  signatureVerified Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  commandExecution  CommandExecution?
+
+  @@index([interactionId])
+  @@index([correlationId])
+  @@map("interaction_records")
+}
+
+model CommandExecution {
+  id                     String                 @id @default(uuid())
+  correlationId          String                 @unique
+  interactionId          String                 @unique
+  serverId               String
+  channelId              String?
+  userId                 String
+  username               String
+  commandName            String
+  subcommand             String?
+  rawInput               Json?
+  title                  String?
+  description            String?
+  severity               Severity?              @default(MEDIUM)
+  category               Category?              @default(OTHER)
+  status                 ExecutionStatus        @default(RECEIVED)
+  executionTimeMs        Int?                   @default(0)
+  errorMessage           String?
+  matchedRuleId          String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  aiEnrichment           AIEnrichment?
+  actions                CommandAction[]
+  interactionRecord      InteractionRecord      @relation(fields: [interactionId], references: [interactionId], onDelete: Cascade)
+  server                 DiscordServer          @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  notificationDeliveries NotificationDelivery[]
+
+  @@index([correlationId])
+  @@index([interactionId])
+  @@index([serverId])
+  @@index([commandName])
+  @@index([status])
+  @@index([createdAt])
+  @@map("command_executions")
+}
+
+model CommandRule {
+  id          String        @id @default(uuid())
+  serverId    String
+  name        String
+  description String?
+  commandName String
+  conditions  Json
+  actions     Json
+  priority    Int           @default(100)
+  isEnabled   Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  server      DiscordServer @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId])
+  @@index([commandName])
+  @@map("command_rules")
+}
+
+model CommandAction {
+  id                 String           @id @default(uuid())
+  commandExecutionId String
+  actionType         String
+  status             ActionStatus     @default(PENDING)
+  attempts           Int              @default(0)
+  maxAttempts        Int              @default(3)
+  lastError          String?
+  nextRetryAt        DateTime?
+  payload            Json?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  commandExecution   CommandExecution @relation(fields: [commandExecutionId], references: [id], onDelete: Cascade)
+
+  @@index([commandExecutionId])
+  @@index([status])
+  @@map("command_actions")
+}
+
+model AIEnrichment {
+  id                 String           @id @default(uuid())
+  commandExecutionId String           @unique
+  provider           String           @default("gemini")
+  status             AIStatus         @default(PENDING)
+  summary            String?
+  suggestedCategory  Category?
+  suggestedSeverity  Severity?
+  extractedTags      Json?
+  rawResponse        Json?
+  errorMessage       String?
+  latencyMs          Int?             @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  commandExecution   CommandExecution @relation(fields: [commandExecutionId], references: [id], onDelete: Cascade)
+
+  @@index([commandExecutionId])
+  @@map("ai_enrichments")
+}
+
+model NotificationDelivery {
+  id                 String           @id @default(uuid())
+  commandExecutionId String
+  channelType        String           @default("DISCORD_MIRROR")
+  destination        String
+  status             ActionStatus     @default(PENDING)
+  attempts           Int              @default(0)
+  maxAttempts        Int              @default(3)
+  lastError          String?
+  sentAt             DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  commandExecution   CommandExecution @relation(fields: [commandExecutionId], references: [id], onDelete: Cascade)
+
+  @@index([commandExecutionId])
+  @@index([status])
+  @@map("notification_deliveries")
+}
+
+model AuditLog {
+  id         String     @id @default(uuid())
+  adminId    String?
+  action     String
+  resource   String
+  resourceId String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime   @default(now())
+  admin      AdminUser? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
