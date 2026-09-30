@@ -45,6 +45,11 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
 
+      - name: Push Prisma DB Schema
+        run: npx prisma db push
+        env:
+          DATABASE_URL: "postgresql://commandops:commandops123@localhost:5432/commandops_db?schema=public"
+
       - name: Run Unit & Integration Tests
         run: npm test
         env:
