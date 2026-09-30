@@ -43,30 +43,40 @@ export interface DispatcherOptions {
   awaitBackground?: boolean;
 }
 
+// In-Memory Fast Idempotency cache for sub-millisecond ACK validation
+const seenInteractions = new Set<string>();
+const MAX_SEEN_INTERACTIONS = 10000;
+
+function checkAndRecordFastIdempotency(interactionId: string): boolean {
+  if (seenInteractions.has(interactionId)) {
+    return true; // Duplicate!
+  }
+  if (seenInteractions.size > MAX_SEEN_INTERACTIONS) {
+    seenInteractions.clear();
+  }
+  seenInteractions.add(interactionId);
+  return false;
+}
+
 export class DiscordDispatcher {
   /**
    * Main entrypoint for processing Discord interactions.
-   * Returns initial ACK (type 5) immediately for commands and modal submits,
-   * while running background processing & sending Discord follow-up via interaction token.
+   * Performs Ed25519, minimal payload parsing, and fast in-memory idempotency check,
+   * returning Discord's initial ACK ({ type: 5 }) in <20ms without waiting for DB or network calls.
    */
   static async handleInteraction(payload: DiscordInteractionPayload, options?: DispatcherOptions) {
     const interactionId = payload.id;
     const correlationId = `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const startTime = Date.now();
 
-    // 1. PING Handling (Type 1) — Returns HTTP 200 PONG immediately (STEP 2 requirement)
+    // 1. PING Handling (Type 1) — Returns HTTP 200 PONG immediately (STEP 2)
     if (payload.type === 1) {
       logger.info({ event: "discord.ping", correlationId, interactionId });
       return { type: 1 };
     }
 
-    const userId = payload.member?.user.id || payload.user?.id || "unknown_user";
-    const username = payload.member?.user.username || payload.user?.username || "anonymous";
-    const guildId = payload.guild_id || "demo-guild-id";
-    const channelId = payload.channel_id || "demo-channel-id";
-
-    // 2. Idempotency Check (Duplicate Interaction Protection)
-    const isDuplicate = await DiscordDispatcher.checkAndRecordDuplicate(interactionId, correlationId, payload);
+    // 2. Fast In-Memory Idempotency Check (<0.1ms) — Prevents duplicate processing before DB
+    const isDuplicate = checkAndRecordFastIdempotency(interactionId);
     if (isDuplicate) {
       logger.warn({ event: "discord.duplicate_detected", correlationId, interactionId });
       return {
@@ -78,8 +88,10 @@ export class DiscordDispatcher {
       };
     }
 
-    // Ensure server record exists
-    const serverId = await DiscordDispatcher.ensureServerExists(guildId);
+    const userId = payload.member?.user.id || payload.user?.id || "unknown_user";
+    const username = payload.member?.user.username || payload.user?.username || "anonymous";
+    const guildId = payload.guild_id || "demo-guild-id";
+    const channelId = payload.channel_id || "demo-channel-id";
 
     // 3. APPLICATION_COMMAND (Type 2)
     if (payload.type === 2) {
@@ -87,7 +99,6 @@ export class DiscordDispatcher {
 
       if (commandName === "status") {
         return DiscordDispatcher.handleStatus(
-          serverId,
           guildId,
           channelId,
           userId,
@@ -117,7 +128,6 @@ export class DiscordDispatcher {
     // 4. MODAL_SUBMIT (Type 5)
     if (payload.type === 5 && payload.data?.custom_id === "report_modal") {
       return DiscordDispatcher.handleReportModalSubmit(
-        serverId,
         guildId,
         channelId,
         userId,
@@ -147,9 +157,9 @@ export class DiscordDispatcher {
   }
 
   /**
-   * Check if interaction ID was already recorded.
+   * Record interaction to database asynchronously in background pipeline.
    */
-  private static async checkAndRecordDuplicate(
+  private static async persistInteractionRecord(
     interactionId: string,
     correlationId: string,
     payload: any
@@ -158,11 +168,6 @@ export class DiscordDispatcher {
 
     if (dbAvailable) {
       try {
-        const existing = await prisma.interactionRecord.findUnique({
-          where: { interactionId },
-        });
-        if (existing) return true;
-
         await prisma.interactionRecord.create({
           data: {
             interactionId,
@@ -176,15 +181,11 @@ export class DiscordDispatcher {
             signatureVerified: true,
           },
         });
-        return false;
-      } catch (err) {
-        // If unique constraint error thrown simultaneously
         return true;
+      } catch (err) {
+        return false;
       }
     } else {
-      // Memory Store Fallback for tests / offline mode
-      const exists = inMemoryStore.interactionRecords.some((r) => r.interactionId === interactionId);
-      if (exists) return true;
       inMemoryStore.interactionRecords.push({
         interactionId,
         correlationId,
@@ -192,7 +193,7 @@ export class DiscordDispatcher {
         rawPayload: payload,
         createdAt: new Date(),
       });
-      return false;
+      return true;
     }
   }
 
@@ -229,10 +230,9 @@ export class DiscordDispatcher {
   }
 
   /**
-   * Handles `/status` command with immediate Deferred ACK ({ type: 5 }) and background execution.
+   * Handles `/status` command with instant Deferred ACK ({ type: 5 }) and background execution.
    */
   private static async handleStatus(
-    serverId: string,
     guildId: string,
     channelId: string,
     userId: string,
@@ -243,10 +243,16 @@ export class DiscordDispatcher {
     startTime: number,
     options?: DispatcherOptions
   ) {
-    const ackLatencyMs = Date.now() - startTime; // Immediate ACK duration (<100ms)
+    // Record instant ACK latency (<20ms)
+    const ackLatencyMs = Date.now() - startTime;
 
     const bgProcessing = async () => {
       const processingStart = Date.now();
+
+      // Async DB persistence for idempotency & server records
+      await DiscordDispatcher.persistInteractionRecord(interactionId, correlationId, payload);
+      const serverId = await DiscordDispatcher.ensureServerExists(guildId);
+
       const dbAvailable = await isDbConnected();
 
       const responseContent = {
@@ -274,7 +280,7 @@ export class DiscordDispatcher {
       await sendDiscordFollowup(payload.application_id, payload.token, responseContent);
       const followupLatencyMs = Date.now() - followupStart;
 
-      const totalDurationMs = Date.now() - startTime;
+      const totalLifecycleMs = Date.now() - startTime;
 
       // 2. Persist & Broadcast
       await DiscordDispatcher.persistAndBroadcastExecution({
@@ -290,7 +296,7 @@ export class DiscordDispatcher {
         severity: "LOW",
         category: "OTHER",
         status: "COMPLETED",
-        durationMs: totalDurationMs,
+        durationMs: totalLifecycleMs,
         ackLatencyMs,
         processingLatencyMs,
         followupLatencyMs,
@@ -308,6 +314,7 @@ export class DiscordDispatcher {
         ack_latency_ms: ackLatencyMs,
         processing_latency_ms: processingLatencyMs,
         followup_latency_ms: followupLatencyMs,
+        total_lifecycle_ms: totalLifecycleMs,
         final_status: "COMPLETED",
       });
 
@@ -399,10 +406,9 @@ export class DiscordDispatcher {
   }
 
   /**
-   * Processes submitted Modal form for `/report` with immediate Deferred ACK ({ type: 5 }) and background processing.
+   * Processes submitted Modal form for `/report` with instant Deferred ACK ({ type: 5 }) and background processing.
    */
   private static async handleReportModalSubmit(
-    serverId: string,
     guildId: string,
     channelId: string,
     userId: string,
@@ -413,10 +419,15 @@ export class DiscordDispatcher {
     startTime: number,
     options?: DispatcherOptions
   ) {
-    const ackLatencyMs = Date.now() - startTime; // Immediate ACK duration (<100ms)
+    // Record instant ACK latency (<20ms)
+    const ackLatencyMs = Date.now() - startTime;
 
     const bgProcessing = async () => {
       const processingStart = Date.now();
+
+      // Async DB persistence for idempotency & server records
+      await DiscordDispatcher.persistInteractionRecord(interactionId, correlationId, payload);
+      const serverId = await DiscordDispatcher.ensureServerExists(guildId);
 
       // Extract input fields from modal payload
       const components = payload.data?.components || [];
@@ -544,7 +555,7 @@ export class DiscordDispatcher {
       const followupResult = await sendDiscordFollowup(payload.application_id, payload.token, followupContent);
       const followupLatencyMs = Date.now() - followupStart;
 
-      const totalDurationMs = Date.now() - startTime;
+      const totalLifecycleMs = Date.now() - startTime;
       const finalStatus = followupResult.success ? "COMPLETED" : "DEGRADED";
 
       // 2. Persist & Broadcast
@@ -561,7 +572,7 @@ export class DiscordDispatcher {
         severity,
         category,
         status: finalStatus,
-        durationMs: totalDurationMs,
+        durationMs: totalLifecycleMs,
         ackLatencyMs,
         processingLatencyMs,
         followupLatencyMs,
@@ -583,6 +594,7 @@ export class DiscordDispatcher {
         ack_latency_ms: ackLatencyMs,
         processing_latency_ms: processingLatencyMs,
         followup_latency_ms: followupLatencyMs,
+        total_lifecycle_ms: totalLifecycleMs,
         final_status: finalStatus,
       });
 

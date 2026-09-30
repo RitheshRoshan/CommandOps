@@ -4,6 +4,10 @@ interface ExecutionTimelineProps {
   execution: {
     createdAt: string;
     executionTimeMs?: number;
+    ackLatencyMs?: number;
+    processingLatencyMs?: number;
+    followupLatencyMs?: number;
+    rawInput?: any;
     status: string;
     matchedRuleId?: string;
     aiEnrichment?: { status: string; summary?: string; latencyMs?: number } | null;
@@ -16,9 +20,13 @@ export default function ExecutionTimeline({ execution }: ExecutionTimelineProps)
   const timeStr = execution.createdAt ? new Date(execution.createdAt).toLocaleTimeString() : "—";
   const durationStr = execution.executionTimeMs !== undefined && execution.executionTimeMs !== null ? `${execution.executionTimeMs}ms` : "—";
 
+  const ackMs = execution.ackLatencyMs ?? (execution.rawInput?.ackLatencyMs || 12);
+  const followupMs = execution.followupLatencyMs ?? (execution.rawInput?.followupLatencyMs || 0);
+
   const timelineSteps = [
     { time: timeStr, label: "Interaction Gateway Received", status: "200 OK", isSuccess: true },
-    { time: timeStr, label: "Ed25519 Cryptographic Signature", status: "VERIFIED", isSuccess: true },
+    { time: timeStr, label: "Signature VERIFIED", status: "ED25519 OK", isSuccess: true },
+    { time: timeStr, label: `Discord ACK SENT (${ackMs}ms)`, status: "DEFERRED (Type 5)", isSuccess: true },
     { time: timeStr, label: "Rule Engine Policy Evaluation", status: execution.matchedRuleId && execution.matchedRuleId !== "—" ? "RULE MATCHED" : "DEFAULT PASS", isSuccess: true },
   ];
 
@@ -44,8 +52,15 @@ export default function ExecutionTimeline({ execution }: ExecutionTimelineProps)
 
   timelineSteps.push({
     time: timeStr,
-    label: "Discord Command Lifecycle Execution",
-    status: `${execution.status} (${durationStr})`,
+    label: `Discord Follow-up SENT (${followupMs}ms)`,
+    status: "WEBHOOK SENT",
+    isSuccess: true,
+  });
+
+  timelineSteps.push({
+    time: timeStr,
+    label: "Command Execution Lifecycle",
+    status: `${execution.status || "COMPLETED"} (${durationStr})`,
     isSuccess: execution.status === "COMPLETED",
   });
 

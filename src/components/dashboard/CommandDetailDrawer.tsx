@@ -19,6 +19,10 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
   const channelName = execution.channelId ? `#${execution.channelId}` : execution.channel || "Unknown channel";
   const durationText = execution.executionTimeMs !== undefined && execution.executionTimeMs !== null ? `${execution.executionTimeMs}ms` : (execution.durationMs !== undefined ? `${execution.durationMs}ms` : "—");
 
+  const ackMs = execution.ackLatencyMs ?? (execution.rawInput?.ackLatencyMs ?? "—");
+  const procMs = execution.processingLatencyMs ?? (execution.rawInput?.processingLatencyMs ?? "—");
+  const followMs = execution.followupLatencyMs ?? (execution.rawInput?.followupLatencyMs ?? "—");
+
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0d1117] border-l border-[#30363d] shadow-2xl flex flex-col justify-between font-mono text-xs text-[#c9d1d9] animate-in slide-in-from-right duration-150">
       {/* Drawer Header */}
@@ -90,8 +94,20 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
             <span className="text-[#f0f6fc] select-all truncate ml-2">{execution.interactionId || "—"}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
-            <span className="text-[#8b949e]">Response Latency</span>
-            <span className="text-[#238636] font-bold">{durationText}</span>
+            <span className="text-[#8b949e]">Discord ACK Latency</span>
+            <span className="text-[#238636] font-bold">{ackMs === "—" ? "—" : `${ackMs}ms`}</span>
+          </div>
+          <div className="flex justify-between border-t border-[#30363d] pt-1">
+            <span className="text-[#8b949e]">Processing Latency</span>
+            <span className="text-[#388bfd] font-bold">{procMs === "—" ? "—" : `${procMs}ms`}</span>
+          </div>
+          <div className="flex justify-between border-t border-[#30363d] pt-1">
+            <span className="text-[#8b949e]">Follow-up Latency</span>
+            <span className="text-[#5865f2] font-bold">{followMs === "—" ? "—" : `${followMs}ms`}</span>
+          </div>
+          <div className="flex justify-between border-t border-[#30363d] pt-1">
+            <span className="text-[#8b949e]">Total Lifecycle</span>
+            <span className="text-[#f0f6fc] font-bold">{durationText}</span>
           </div>
         </div>
 
@@ -115,6 +131,9 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
                 user: execution.username || execution.user,
                 severity: execution.severity || "LOW",
                 category: execution.category || "OTHER",
+                ackLatencyMs: ackMs,
+                processingLatencyMs: procMs,
+                followupLatencyMs: followMs,
                 ed25519Signature: "VERIFIED_OK",
               },
               null,
