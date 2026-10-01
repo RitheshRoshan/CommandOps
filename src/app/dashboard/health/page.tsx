@@ -98,7 +98,10 @@ export default function SystemHealthPage() {
         </div>
 
         {loading ? (
-          <div className="p-8 text-center text-[#8b949e]">Probing backend system health...</div>
+          <div className="p-10 text-center text-[#8b949e] flex flex-col items-center justify-center gap-2 font-mono">
+            <div className="w-5 h-5 border-2 border-[#238636] border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs text-[#8b949e]">Probing backend system health & infrastructure checks...</span>
+          </div>
         ) : (
           <div className="divide-y divide-[#30363d]">
             {healthServices.map((srv) => (

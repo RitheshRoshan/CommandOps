@@ -60,8 +60,9 @@ export default function CommandsCatalogPage() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-[#8b949e] font-mono border border-[#30363d] rounded bg-[#161b22]">
-          Calculating live command statistics...
+        <div className="p-12 text-center text-[#8b949e] font-mono border border-[#30363d] rounded-md bg-[#161b22] flex flex-col items-center justify-center gap-3">
+          <div className="w-6 h-6 border-2 border-[#388bfd] border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs text-[#c9d1d9]">Calculating live command performance metrics...</span>
         </div>
       ) : commands.length === 0 ? (
         <div className="p-8 text-center text-[#8b949e] font-mono border border-[#30363d] rounded bg-[#161b22]">

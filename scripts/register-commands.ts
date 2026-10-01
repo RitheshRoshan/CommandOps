@@ -37,12 +37,18 @@ const commands = [
         name: "severity",
         description: "Severity level (CRITICAL, HIGH, MEDIUM)",
         type: 3, // STRING
-        required: false,
+        required: true,
         choices: [
           { name: "CRITICAL — Total Outage", value: "CRITICAL" },
           { name: "HIGH — Major Impact", value: "HIGH" },
           { name: "MEDIUM — Minor Degradation", value: "MEDIUM" },
         ],
+      },
+      {
+        name: "description",
+        description: "Detailed summary of symptoms, affected services or error messages",
+        type: 3, // STRING
+        required: false,
       },
     ],
   },

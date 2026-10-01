@@ -533,14 +533,17 @@ export class DiscordDispatcher {
       // Extract command options
       let title = "Operational Outage Alert";
       let severityStr = "CRITICAL";
+      let descriptionOpt = "";
 
       for (const opt of payload.data?.options || []) {
         if (opt.name === "title") title = String(opt.value);
         if (opt.name === "severity") severityStr = String(opt.value).toUpperCase();
+        if (opt.name === "description") descriptionOpt = String(opt.value);
       }
 
       const validSeverities = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
       const severity = validSeverities.includes(severityStr) ? severityStr : "CRITICAL";
+      const incidentDesc = descriptionOpt || `Emergency incident declared via Discord /incident command by @${username}`;
 
       // Evaluate Rule Engine
       const rules = await DiscordDispatcher.fetchServerRules(serverId);
@@ -564,7 +567,7 @@ export class DiscordDispatcher {
         const aiProvider = getAIProvider();
         aiAnalysis = await aiProvider.analyzeReport({
           title,
-          description: `Emergency incident declared via Discord /incident command by @${username}`,
+          description: incidentDesc,
           userProvidedSeverity: severity,
           userProvidedCategory: "INCIDENT",
         });
@@ -585,7 +588,7 @@ export class DiscordDispatcher {
           correlationId,
           commandName: "incident",
           title,
-          description: `Declared by @${username}`,
+          description: incidentDesc,
           severity,
           category: "INCIDENT",
           aiSummary,
@@ -605,6 +608,7 @@ export class DiscordDispatcher {
               { name: "Severity", value: `\`${severity}\``, inline: true },
               { name: "Declared By", value: `@${username}`, inline: true },
               { name: "Correlation ID", value: `\`${correlationId}\``, inline: true },
+              ...(descriptionOpt ? [{ name: "Description", value: descriptionOpt, inline: false }] : []),
               { name: "AI Emergency Triage", value: aiSummary, inline: false },
               { name: "SRE Webhook Mirror", value: mirrorStatus === "SUCCESS" ? "🟢 DELIVERED" : "🔴 QUEUED / RETRYING", inline: true },
               { name: "ACK Response Time", value: `\`${formatMsValue(ackProcessingMs)}\``, inline: true },

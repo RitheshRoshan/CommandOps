@@ -66,8 +66,9 @@ export default function CommandIntelligencePage() {
       </div>
 
       {loading ? (
-        <div className="p-8 text-center text-[#8b949e] font-mono border border-[#30363d] rounded bg-[#161b22]">
-          Calculating system intelligence & latency percentiles...
+        <div className="p-12 text-center text-[#8b949e] font-mono border border-[#30363d] rounded-md bg-[#161b22] flex flex-col items-center justify-center gap-3">
+          <div className="w-6 h-6 border-2 border-[#5865f2] border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs text-[#c9d1d9]">Calculating system intelligence, latency percentiles & AI advisory...</span>
         </div>
       ) : !data || data.metrics.totalExecutions === 0 ? (
         <div className="p-8 text-center text-[#8b949e] font-mono border border-[#30363d] rounded bg-[#161b22]">

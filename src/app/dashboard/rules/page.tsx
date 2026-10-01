@@ -68,7 +68,10 @@ export default function RulesPage() {
 
       <div className="space-y-2 font-mono">
         {loading ? (
-          <div className="text-center py-8 text-[#8b949e]">Loading Rule Definitions...</div>
+          <div className="bg-[#161b22] border border-[#30363d] rounded-md p-10 text-center text-[#8b949e] flex flex-col items-center justify-center gap-2 font-mono">
+            <div className="w-5 h-5 border-2 border-[#5865f2] border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs text-[#8b949e]">Fetching automation rule definitions...</span>
+          </div>
         ) : rules.length === 0 ? (
           <div className="bg-[#161b22] border border-[#30363d] rounded-md p-8 text-center text-[#8b949e]">
             No custom rules configured yet. Standard system default rules are active.

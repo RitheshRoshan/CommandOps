@@ -98,8 +98,11 @@ export default function AuditTrailPage() {
             <tbody className="divide-y divide-[#30363d] text-[#c9d1d9]">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-[#8b949e]">
-                    Loading Audit Records from Database...
+                  <td colSpan={7} className="py-12 text-center text-[#8b949e]">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <div className="w-5 h-5 border-2 border-[#238636] border-t-transparent rounded-full animate-spin" />
+                      <span className="text-xs font-mono text-[#8b949e]">Loading append-only governance trail from database...</span>
+                    </div>
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (

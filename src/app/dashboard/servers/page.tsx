@@ -141,7 +141,10 @@ export default function ServersPage() {
           </div>
           <div className="divide-y divide-[#30363d] bg-[#161b22] border border-[#30363d] rounded-md overflow-hidden">
             {loading ? (
-              <div className="p-6 text-center text-[#8b949e]">Loading servers from database...</div>
+              <div className="p-10 text-center text-[#8b949e] flex flex-col items-center justify-center gap-2">
+                <div className="w-5 h-5 border-2 border-[#5865f2] border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-mono text-[#8b949e]">Loading connected servers from database...</span>
+              </div>
             ) : servers.length === 0 ? (
               <div className="p-8 text-center text-[#8b949e]">No servers connected yet.</div>
             ) : (

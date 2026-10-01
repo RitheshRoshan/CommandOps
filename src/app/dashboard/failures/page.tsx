@@ -66,7 +66,10 @@ export default function FailuresPage() {
 
       <div className="space-y-2 font-mono">
         {loading ? (
-          <div className="text-center py-8 text-[#8b949e]">Loading Failure Queue from Database...</div>
+          <div className="bg-[#161b22] border border-[#30363d] rounded-md p-10 text-center text-[#8b949e] flex flex-col items-center justify-center gap-2 font-mono">
+            <div className="w-5 h-5 border-2 border-[#f85149] border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs text-[#8b949e]">Loading failure queue & delivery backlog from database...</span>
+          </div>
         ) : failures.length === 0 ? (
           <div className="bg-[#161b22] border border-[#30363d] rounded-md p-8 text-center text-[#8b949e] space-y-1">
             <div className="text-[#238636] font-bold text-sm">✓ Zero Failed Downstream Actions</div>
