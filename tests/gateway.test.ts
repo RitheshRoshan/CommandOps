@@ -130,7 +130,41 @@ describe("Discord Interaction Gateway & Ed25519 Security", () => {
     expect(result.data.content).toContain("Unknown command");
   });
 
-  it("10. Discord follow-up handler gracefully completes for simulated tokens", async () => {
+  it("10. /metrics slash command returns Deferred ACK (Type 5) and metrics embed", async () => {
+    const result = await DiscordDispatcher.handleInteraction(
+      {
+        id: `metrics_${Date.now()}_${Math.random()}`,
+        type: 2,
+        data: { name: "metrics" },
+        user: { id: "u3", username: "metrics_user" },
+      },
+      { awaitBackground: true }
+    );
+    expect(result.type).toBe(5);
+    expect(result.data.embeds[0].title).toContain("Metrics");
+  });
+
+  it("11. /incident slash command returns Deferred ACK (Type 5) and incident triage embed", async () => {
+    const result = await DiscordDispatcher.handleInteraction(
+      {
+        id: `incident_${Date.now()}_${Math.random()}`,
+        type: 2,
+        data: {
+          name: "incident",
+          options: [
+            { name: "title", value: "Primary DB Latency Spike" },
+            { name: "severity", value: "HIGH" },
+          ],
+        },
+        user: { id: "u4", username: "sre_lead" },
+      },
+      { awaitBackground: true }
+    );
+    expect(result.type).toBe(5);
+    expect(result.data.embeds[0].title).toContain("Emergency Incident Declared");
+  });
+
+  it("12. Discord follow-up handler gracefully completes for simulated tokens", async () => {
     const followupRes = await sendDiscordFollowup("123456", "sim_token_xyz", {
       content: "Test follow-up payload",
     });

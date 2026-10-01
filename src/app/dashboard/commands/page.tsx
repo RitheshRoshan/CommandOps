@@ -78,7 +78,13 @@ export default function CommandsCatalogPage() {
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-bold text-[#f0f6fc]">{cmd.command}</span>
                   <span className="text-[11px] text-[#8b949e]">
-                    {cmd.command === "/status" ? "Check service health telemetry" : "Operational incident/bug report"}
+                    {cmd.command === "/status"
+                      ? "Check service health telemetry"
+                      : cmd.command === "/metrics"
+                      ? "Real-time latency & throughput performance"
+                      : cmd.command === "/incident"
+                      ? "Declare high-severity operational emergency"
+                      : "Operational incident/bug report"}
                   </span>
                 </div>
                 <span className="text-[10px] text-[#238636] font-semibold flex items-center gap-1">

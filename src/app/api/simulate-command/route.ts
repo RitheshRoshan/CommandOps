@@ -75,5 +75,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, interactionId, result });
   }
 
+  if (command === "metrics") {
+    const payload = {
+      id: interactionId,
+      type: 2,
+      guild_id: "demo-guild-99",
+      channel_id: "demo-channel-1",
+      user: { id: "user-101", username: activeUser },
+      data: { name: "metrics" },
+    };
+
+    const result = await DiscordDispatcher.handleInteraction(payload, { awaitBackground: true });
+    return NextResponse.json({ success: true, interactionId, result });
+  }
+
+  if (command === "incident") {
+    const payload = {
+      id: interactionId,
+      type: 2,
+      guild_id: "demo-guild-99",
+      channel_id: "demo-channel-1",
+      user: { id: "user-101", username: activeUser },
+      data: {
+        name: "incident",
+        options: [
+          { name: "title", value: title || "Simulated Emergency Incident" },
+          { name: "severity", value: severity || "CRITICAL" },
+        ],
+      },
+    };
+
+    const result = await DiscordDispatcher.handleInteraction(payload, { awaitBackground: true });
+    return NextResponse.json({ success: true, interactionId, result });
+  }
+
   return NextResponse.json({ error: "Unknown command simulation" }, { status: 400 });
 }

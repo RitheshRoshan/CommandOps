@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID || process.env.DISCORD_APPLICATION_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 
 if (!BOT_TOKEN || !CLIENT_ID) {
@@ -18,6 +18,33 @@ const commands = [
   {
     name: "report",
     description: "Submit an operational report or incident to CommandOps Control Plane",
+  },
+  {
+    name: "metrics",
+    description: "View real-time latency percentiles, throughput, and system resource metrics",
+  },
+  {
+    name: "incident",
+    description: "Declare a high-severity operational incident to CommandOps SRE triage",
+    options: [
+      {
+        name: "title",
+        description: "Short summary of the operational incident",
+        type: 3, // STRING
+        required: true,
+      },
+      {
+        name: "severity",
+        description: "Severity level (CRITICAL, HIGH, MEDIUM)",
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: "CRITICAL — Total Outage", value: "CRITICAL" },
+          { name: "HIGH — Major Impact", value: "HIGH" },
+          { name: "MEDIUM — Minor Degradation", value: "MEDIUM" },
+        ],
+      },
+    ],
   },
 ];
 
@@ -45,7 +72,7 @@ async function registerCommands() {
     }
 
     const data = await res.json();
-    console.log(`✅ Successfully registered commands with Discord!`);
+    console.log(`✅ Successfully registered ${commands.length} commands with Discord!`);
     console.log(JSON.stringify(data, null, 2));
   } catch (err: any) {
     console.error("❌ Failed to register Discord slash commands:", err.message);

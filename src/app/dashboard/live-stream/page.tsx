@@ -75,6 +75,8 @@ export default function LiveStreamPage() {
           <option value="ALL">All Commands</option>
           <option value="report">/report</option>
           <option value="status">/status</option>
+          <option value="metrics">/metrics</option>
+          <option value="incident">/incident</option>
         </select>
       </div>
 
