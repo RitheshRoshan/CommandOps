@@ -80,8 +80,8 @@ export default function OverviewDashboard() {
             <span className="text-base font-bold text-[#c9d1d9]">{metrics.activeServers}</span>
           </div>
           <div className="pl-6">
-            <span className="text-[10px] text-[#8b949e] uppercase block">Avg Response</span>
-            <span className="text-base font-bold text-[#388bfd]">{metrics.avgLatencyMs}ms</span>
+            <span className="text-[10px] text-[#8b949e] uppercase block">Avg Total Lifecycle</span>
+            <span className="text-base font-bold text-[#388bfd]">{metrics.avgLatencyMs >= 1000 ? `${(metrics.avgLatencyMs / 1000).toFixed(1)}s` : `${metrics.avgLatencyMs}ms`}</span>
           </div>
         </div>
 

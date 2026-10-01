@@ -110,7 +110,7 @@ export default function CommandsCatalogPage() {
                   Success Rate: <span className="text-[#238636] font-bold">{cmd.successRate}%</span>
                 </div>
                 <div>
-                  Avg Latency: <span className="text-[#388bfd] font-bold">{cmd.averageResponseTime}ms</span>
+                  Avg Lifecycle: <span className="text-[#388bfd] font-bold">{cmd.averageResponseTime >= 1000 ? `${(cmd.averageResponseTime / 1000).toFixed(1)}s` : `${cmd.averageResponseTime}ms`}</span>
                 </div>
               </div>
 

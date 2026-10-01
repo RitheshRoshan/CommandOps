@@ -8,8 +8,11 @@ interface CommandDetailDrawerProps {
   onClose: () => void;
 }
 
-function formatMsDisplay(val?: number): string {
-  if (val === undefined || val === null || isNaN(val)) return "N/A";
+function formatDuration(val?: number | null): string {
+  if (val === undefined || val === null || isNaN(val) || val <= 0) return "N/A";
+  if (val >= 1000) {
+    return `${(val / 1000).toFixed(1)}s (${val}ms)`;
+  }
   return `${val}ms`;
 }
 
@@ -24,10 +27,10 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
   const serverName = execution.server?.name || execution.server || "Unknown server";
   const channelName = execution.channelId ? `#${execution.channelId}` : execution.channel || "Unknown channel";
 
-  const ackMs = execution.ackProcessingMs ?? raw.ackProcessingMs;
-  const procMs = execution.commandProcessingMs ?? raw.commandProcessingMs;
-  const followMs = execution.followupMs ?? raw.followupMs;
-  const totalMs = execution.executionTimeMs;
+  const ackMs = execution.ackResponseTimeMs ?? execution.ackProcessingMs ?? raw.ackProcessingMs;
+  const procMs = execution.processingTimeMs ?? execution.commandProcessingMs ?? raw.commandProcessingMs;
+  const followMs = execution.followupTimeMs ?? execution.followupMs ?? raw.followupMs;
+  const totalMs = execution.totalLifecycleMs ?? execution.executionTimeMs;
 
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0d1117] border-l border-[#30363d] shadow-2xl flex flex-col justify-between font-mono text-xs text-[#c9d1d9] animate-in slide-in-from-right duration-150">
@@ -101,19 +104,19 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
             <span className="text-[#8b949e]">ACK Response Time</span>
-            <span className="text-[#238636] font-bold">{formatMsDisplay(ackMs)}</span>
+            <span className="text-[#238636] font-bold">{formatDuration(ackMs)}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
             <span className="text-[#8b949e]">Command Processing</span>
-            <span className="text-[#388bfd] font-bold">{formatMsDisplay(procMs)}</span>
+            <span className="text-[#388bfd] font-bold">{formatDuration(procMs)}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
             <span className="text-[#8b949e]">Discord Follow-up</span>
-            <span className="text-[#5865f2] font-bold">{formatMsDisplay(followMs)}</span>
+            <span className="text-[#5865f2] font-bold">{followMs ? formatDuration(followMs) : "SENT"}</span>
           </div>
           <div className="flex justify-between border-t border-[#30363d] pt-1">
             <span className="text-[#8b949e]">Total Lifecycle</span>
-            <span className="text-[#f0f6fc] font-bold">{formatMsDisplay(totalMs)}</span>
+            <span className="text-[#f0f6fc] font-bold">{formatDuration(totalMs)}</span>
           </div>
         </div>
 
@@ -137,9 +140,10 @@ export default function CommandDetailDrawer({ execution, onClose }: CommandDetai
                 user: execution.username || execution.user,
                 severity: execution.severity || "LOW",
                 category: execution.category || "OTHER",
-                ackProcessingMs: formatMsDisplay(ackMs),
-                commandProcessingMs: formatMsDisplay(procMs),
-                followupMs: formatMsDisplay(followMs),
+                ackResponseTimeMs: formatDuration(ackMs),
+                commandProcessingMs: formatDuration(procMs),
+                followupMs: formatDuration(followMs),
+                totalLifecycleMs: formatDuration(totalMs),
                 ed25519Signature: "VERIFIED_OK",
               },
               null,

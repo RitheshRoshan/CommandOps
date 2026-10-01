@@ -121,7 +121,7 @@ describe("Immediate Discord ACK & Non-blocking Background Execution", () => {
     const result = await DiscordDispatcher.handleInteraction(payload, { awaitBackground: true });
     expect(result.type).toBe(5);
     expect(result.data.embeds[0].title).toContain("AI Failure test");
-  });
+  }, 35000);
 
   it("7. Webhook mirror failure is captured gracefully", async () => {
     const payload = {

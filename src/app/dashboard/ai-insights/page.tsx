@@ -102,12 +102,12 @@ export default function CommandIntelligencePage() {
               <p className="text-base font-bold text-[#238636] mt-1">{data.metrics.successRate}%</p>
             </div>
             <div className="bg-[#161b22] border border-[#30363d] rounded p-3">
-              <span className="text-[10px] text-[#8b949e] uppercase">Average Latency</span>
-              <p className="text-base font-bold text-[#388bfd] mt-1">{data.metrics.avgLatencyMs}ms</p>
+              <span className="text-[10px] text-[#8b949e] uppercase">Average Lifecycle</span>
+              <p className="text-base font-bold text-[#388bfd] mt-1">{data.metrics.avgLatencyMs >= 1000 ? `${(data.metrics.avgLatencyMs / 1000).toFixed(1)}s` : `${data.metrics.avgLatencyMs}ms`}</p>
             </div>
             <div className="bg-[#161b22] border border-[#30363d] rounded p-3">
-              <span className="text-[10px] text-[#8b949e] uppercase">P95 Latency</span>
-              <p className="text-base font-bold text-[#d29922] mt-1">{data.metrics.p95LatencyMs}ms</p>
+              <span className="text-[10px] text-[#8b949e] uppercase">P95 Lifecycle</span>
+              <p className="text-base font-bold text-[#d29922] mt-1">{data.metrics.p95LatencyMs >= 1000 ? `${(data.metrics.p95LatencyMs / 1000).toFixed(1)}s` : `${data.metrics.p95LatencyMs}ms`}</p>
             </div>
           </div>
 
@@ -134,31 +134,31 @@ export default function CommandIntelligencePage() {
             {/* Latency Percentiles Performance Table */}
             <div className="bg-[#161b22] border border-[#30363d] rounded-md p-4 space-y-3">
               <div className="text-xs font-bold uppercase text-[#8b949e] border-b border-[#30363d] pb-2">
-                Calculated Latency Percentiles
+                Calculated Lifecycle Duration Percentiles
               </div>
               <table className="w-full text-left text-xs">
                 <thead className="text-[#8b949e] border-b border-[#30363d] uppercase text-[10px]">
                   <tr>
                     <th className="py-1">METRIC</th>
                     <th className="py-1">PERCENTILE</th>
-                    <th className="py-1">LATENCY</th>
+                    <th className="py-1">DURATION</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#30363d] text-[#c9d1d9]">
                   <tr>
-                    <td className="py-2 font-bold text-[#f0f6fc]">Median Response Time</td>
+                    <td className="py-2 font-bold text-[#f0f6fc]">Median Lifecycle Duration</td>
                     <td className="py-2 text-[#8b949e]">P50</td>
-                    <td className="py-2 text-[#238636] font-semibold">{data.metrics.p50LatencyMs}ms</td>
+                    <td className="py-2 text-[#238636] font-semibold">{data.metrics.p50LatencyMs >= 1000 ? `${(data.metrics.p50LatencyMs / 1000).toFixed(1)}s` : `${data.metrics.p50LatencyMs}ms`}</td>
                   </tr>
                   <tr>
-                    <td className="py-2 font-bold text-[#f0f6fc]">95th Percentile Response</td>
+                    <td className="py-2 font-bold text-[#f0f6fc]">95th Percentile Lifecycle</td>
                     <td className="py-2 text-[#8b949e]">P95</td>
-                    <td className="py-2 text-[#d29922] font-semibold">{data.metrics.p95LatencyMs}ms</td>
+                    <td className="py-2 text-[#d29922] font-semibold">{data.metrics.p95LatencyMs >= 1000 ? `${(data.metrics.p95LatencyMs / 1000).toFixed(1)}s` : `${data.metrics.p95LatencyMs}ms`}</td>
                   </tr>
                   <tr>
-                    <td className="py-2 font-bold text-[#f0f6fc]">99th Percentile Tail Latency</td>
+                    <td className="py-2 font-bold text-[#f0f6fc]">99th Percentile Tail Lifecycle</td>
                     <td className="py-2 text-[#8b949e]">P99</td>
-                    <td className="py-2 text-[#f85149] font-semibold">{data.metrics.p99LatencyMs}ms</td>
+                    <td className="py-2 text-[#f85149] font-semibold">{data.metrics.p99LatencyMs >= 1000 ? `${(data.metrics.p99LatencyMs / 1000).toFixed(1)}s` : `${data.metrics.p99LatencyMs}ms`}</td>
                   </tr>
                 </tbody>
               </table>

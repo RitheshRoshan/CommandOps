@@ -45,32 +45,45 @@ export async function GET(req: NextRequest) {
         }),
       ]);
 
-      const formatted = items.map((e: any) => ({
-        id: e.id,
-        correlationId: e.correlationId,
-        interactionId: e.interactionId,
-        command: e.commandName.startsWith("/") ? e.commandName : `/${e.commandName}`,
-        commandName: e.commandName,
-        user: `@${e.username}`,
-        username: e.username,
-        userId: e.userId,
-        server: e.server?.name || "Unknown server",
-        serverId: e.serverId,
-        channel: e.channelId ? `#${e.channelId}` : "Unknown channel",
-        channelId: e.channelId,
-        title: e.title || "—",
-        description: e.description || "—",
-        severity: e.severity || "LOW",
-        category: e.category || "OTHER",
-        status: e.status,
-        durationMs: e.executionTimeMs !== null ? e.executionTimeMs : "—",
-        executionTimeMs: e.executionTimeMs,
-        matchedRuleId: e.matchedRuleId || "—",
-        createdAt: e.createdAt.toISOString(),
-        aiEnrichment: e.aiEnrichment,
-        actions: e.actions,
-        notificationDeliveries: e.notificationDeliveries,
-      }));
+      const formatted = items.map((e: any) => {
+        const raw = (e.rawInput as any) || {};
+        const ackResponseTimeMs = e.ackProcessingMs ?? raw.ackProcessingMs ?? null;
+        const processingTimeMs = e.commandProcessingMs ?? raw.commandProcessingMs ?? null;
+        const followupTimeMs = e.followupMs ?? raw.followupMs ?? null;
+        const totalLifecycleMs = e.executionTimeMs ?? null;
+
+        return {
+          id: e.id,
+          correlationId: e.correlationId,
+          interactionId: e.interactionId,
+          command: e.commandName.startsWith("/") ? e.commandName : `/${e.commandName}`,
+          commandName: e.commandName,
+          user: `@${e.username}`,
+          username: e.username,
+          userId: e.userId,
+          server: e.server?.name || "Unknown server",
+          serverId: e.serverId,
+          channel: e.channelId ? `#${e.channelId}` : "Unknown channel",
+          channelId: e.channelId,
+          title: e.title || "—",
+          description: e.description || "—",
+          severity: e.severity || "LOW",
+          category: e.category || "OTHER",
+          status: e.status,
+          durationMs: totalLifecycleMs !== null ? totalLifecycleMs : "—",
+          executionTimeMs: e.executionTimeMs,
+          ackResponseTimeMs,
+          processingTimeMs,
+          followupTimeMs,
+          totalLifecycleMs,
+          rawInput: e.rawInput || {},
+          matchedRuleId: e.matchedRuleId || "—",
+          createdAt: e.createdAt.toISOString(),
+          aiEnrichment: e.aiEnrichment,
+          actions: e.actions,
+          notificationDeliveries: e.notificationDeliveries,
+        };
+      });
 
       const totalPages = Math.ceil(total / limit);
 
@@ -106,32 +119,45 @@ export async function GET(req: NextRequest) {
   const paginated = filtered.slice(skip, skip + limit);
   const totalPages = Math.ceil(total / limit);
 
-  const formatted = paginated.map((e) => ({
-    id: e.id,
-    correlationId: e.correlationId,
-    interactionId: e.interactionId,
-    command: e.commandName?.startsWith("/") ? e.commandName : `/${e.commandName || "command"}`,
-    commandName: e.commandName,
-    user: `@${e.username || "user"}`,
-    username: e.username,
-    userId: e.userId,
-    server: e.server?.name || "Unknown server",
-    serverId: e.serverId,
-    channel: e.channelId ? `#${e.channelId}` : "Unknown channel",
-    channelId: e.channelId,
-    title: e.title || "—",
-    description: e.description || "—",
-    severity: e.severity || "LOW",
-    category: e.category || "OTHER",
-    status: e.status || "COMPLETED",
-    durationMs: e.executionTimeMs !== undefined ? e.executionTimeMs : "—",
-    executionTimeMs: e.executionTimeMs,
-    matchedRuleId: e.matchedRuleId || "—",
-    createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString(),
-    aiEnrichment: null,
-    actions: [],
-    notificationDeliveries: [],
-  }));
+  const formatted = paginated.map((e) => {
+    const raw = (e.rawInput as any) || {};
+    const ackResponseTimeMs = e.ackProcessingMs ?? raw.ackProcessingMs ?? null;
+    const processingTimeMs = e.commandProcessingMs ?? raw.commandProcessingMs ?? null;
+    const followupTimeMs = e.followupMs ?? raw.followupMs ?? null;
+    const totalLifecycleMs = e.executionTimeMs ?? null;
+
+    return {
+      id: e.id,
+      correlationId: e.correlationId,
+      interactionId: e.interactionId,
+      command: e.commandName?.startsWith("/") ? e.commandName : `/${e.commandName || "command"}`,
+      commandName: e.commandName,
+      user: `@${e.username || "user"}`,
+      username: e.username,
+      userId: e.userId,
+      server: e.server?.name || "Unknown server",
+      serverId: e.serverId,
+      channel: e.channelId ? `#${e.channelId}` : "Unknown channel",
+      channelId: e.channelId,
+      title: e.title || "—",
+      description: e.description || "—",
+      severity: e.severity || "LOW",
+      category: e.category || "OTHER",
+      status: e.status || "COMPLETED",
+      durationMs: totalLifecycleMs !== null ? totalLifecycleMs : "—",
+      executionTimeMs: e.executionTimeMs,
+      ackResponseTimeMs,
+      processingTimeMs,
+      followupTimeMs,
+      totalLifecycleMs,
+      rawInput: e.rawInput || {},
+      matchedRuleId: e.matchedRuleId || "—",
+      createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : new Date().toISOString(),
+      aiEnrichment: null,
+      actions: [],
+      notificationDeliveries: [],
+    };
+  });
 
   return NextResponse.json({
     items: formatted,
